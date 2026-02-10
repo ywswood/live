@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.2.5 - Ultimate Debug</title>
+    <title>Voice Secretary v1.2.6 - Manual Wire-Strict</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -69,25 +69,25 @@
             width: 100%;
             height: 50vh;
             background: #000;
-            border-top: 3px solid #0f0;
+            border-top: 2px solid #555;
             font-size: 8px;
             padding: 10px;
             overflow-y: scroll;
             z-index: 1000;
-            color: #0c0;
+            color: #0d0;
             line-height: 1.1;
             word-break: break-all;
         }
 
         .trace-err {
             color: #fff;
-            background: #c00;
+            background: #d00;
             font-weight: bold;
         }
 
         .trace-sys {
-            color: #aaa;
-            border-left: 2px solid #aaa;
+            color: #888;
+            border-left: 2px solid #888;
             padding-left: 4px;
         }
 
@@ -101,39 +101,23 @@
             color: #f0f;
             border-left: 2px solid #f0f;
             padding-left: 4px;
-            border-bottom: 1px dotted #333;
+            background: rgba(255, 0, 255, 0.05);
         }
 
         .trace-important {
-            color: #fff;
-            background: #0066cc;
+            color: #000;
+            background: #0f0;
             font-weight: bold;
-        }
-
-        #micLevel {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            font-size: 10px;
-            color: #0f0;
-            z-index: 2000;
-            font-weight: bold;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 4px;
-            border-radius: 4px;
         }
     </style>
 </head>
 
 <body class="h-screen flex flex-col items-center">
-    <!-- Mic Monitor -->
-    <div id="micLevel">MIC LVL: 0%</div>
-
     <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-6 px-8 text-center"
         style="height: 50vh">
         <header>
             <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
-                    class="text-[9px] text-zinc-600 block">v1.2.5 (Faithful Implementation)</span></h1>
+                    class="text-[9px] text-zinc-600 block">v1.2.6 (Manual Wire-Strict)</span></h1>
         </header>
         <div class="main flex-1 flex items-center justify-center">
             <div id="btn" class="relative w-36 h-36 cursor-pointer active:scale-95 transition-transform">
@@ -143,17 +127,16 @@
                 </div>
             </div>
         </div>
-        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Reference-Faithful Booting...</div>
+        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Listening for any response...</div>
     </div>
 
-    <!-- Trace Logger -->
     <div id="fullTrace">
-        <div class="trace-sys">--- V1.2.5 ULTIMATE MANUAL MODE ---</div>
+        <div class="trace-sys">--- V1.2.6 WIRE-STRICT DEBUG ---</div>
     </div>
 
     <script>
         const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
-        const traceEl = document.getElementById('fullTrace'), micEl = document.getElementById('micLevel'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
+        const traceEl = document.getElementById('fullTrace'), st = document.getElementById('status'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
 
         function trace(msg, type = '') {
             const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
@@ -168,92 +151,72 @@
         let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
 
         async function connectGemini() {
-            // Manual p42: Literal match
-            const MODEL_NAME = "models/gemini-2.5-flash-native-audio-preview-12-2025";
-            trace(`ACTIVATE: ${MODEL_NAME}`, 'important');
+            // Manual Line 42: Exact string
+            const MODEL_NAME = "gemini-2.5-flash-native-audio-preview-12-2025";
+            trace(`INIT: ${MODEL_NAME}`, 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                // Manual p179: v1alpha endpoint
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
-                trace(`SOCKET: ${url}`, 'sys');
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    trace("🔥 NETWORK_LINK: ESTABLISHED", 'sys');
-                    // Manual p43, p179, p192, p211: Combine into one 'config' block
+                    trace("🔥 WebSocket Opened", 'sys');
+                    // Setup per wire protocol specifications + manual values
                     const setup = {
                         setup: {
                             model: MODEL_NAME,
-                            config: {
-                                response_modalities: ["AUDIO"],
-                                enable_affective_dialog: true,
-                                proactivity: { proactive_audio: true },
-                                thinking_config: { thinking_budget: 1024 },
-                                input_audio_transcription: {},
-                                output_audio_transcription: {}
+                            generation_config: {
+                                response_modalities: ["AUDIO"]
+                                // Optional keys from manual can go here if needed
                             }
                         }
                     };
                     ws.send(JSON.stringify(setup));
-                    trace("SENT_SETUP: " + JSON.stringify(setup), 'send');
+                    trace("SENT: " + JSON.stringify(setup), 'send');
                 };
 
-                ws.onclose = (ev) => trace(`🔌 DISCONNECTED [${ev.code}] ${ev.reason || 'No Reason'}`, 'err');
-                ws.onerror = (e) => trace("❌ SOCKET_ERROR: Hardware or Network issue", 'err');
+                ws.onclose = (ev) => trace(`🔌 CLOSED [${ev.code}] ${ev.reason}`, 'err');
+                ws.onerror = (err) => trace("❌ NETWORK ERROR", 'err');
 
                 ws.onmessage = async (e) => {
+                    // SHOW EVERYTHING (User request: Fail logs are important)
                     trace(`RECV_RAW: ${e.data}`, 'recv');
+
                     try {
                         const data = JSON.parse(e.data);
+                        if (data.setupComplete) trace("⭐ setupComplete received!", 'important');
 
-                        // Check for standard setup response
-                        if (data.setupComplete) trace("⭐ setupComplete (Protocol Link Success)", 'important');
-
-                        // Check all possible serverContent keys (Manual p114, p147, p243)
-                        const sc = data.serverContent || data.server_content;
-                        if (sc) {
-                            if (sc.interrupted) trace(" ⚠️ MODEL_INTERRUPTED_SIGNAL", 'err');
-
+                        if (data.serverContent) {
+                            const sc = data.serverContent;
                             const turn = sc.modelTurn || sc.model_turn;
                             if (turn?.parts?.[0]) {
                                 const part = turn.parts[0];
-                                if (part.inlineData) {
-                                    trace("🔊 AUDIO_DATA_BLOB received", 'important');
-                                    playRawPCM(part.inlineData.data);
+                                if (part.inlineData || part.inline_data) {
+                                    const audioBase64 = (part.inlineData || part.inline_data).data;
+                                    trace(`🔊 AUDIO DATA: ${audioBase64.length} chars`, 'important');
+                                    playRawPCM(audioBase64);
                                 }
-                                if (part.text) trace(`� MODEL_TEXT_PART: ${part.text}`, 'sys');
                             }
-
-                            if (sc.input_transcription) trace(`📝 IN_TRANS: ${sc.input_transcription.text}`, 'sys');
-                            if (sc.output_transcription) trace(`📝 OUT_TRANS: ${sc.output_transcription.text}`, 'sys');
                         }
 
-                        if (data.usageMetadata) trace(`📊 UTILIZATION: ${JSON.stringify(data.usageMetadata)}`, 'sys');
+                        if (data.error) trace(`🚨 SERVER_SIDE_ERROR: ${JSON.stringify(data.error)}`, 'err');
                     } catch (err) { trace(`PARSE_ERR: ${err.message}`, 'err'); }
                 };
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                trace("🎤 MIC: GRANTED. Binding to AudioContext...", 'sys');
+                trace("🎤 MIC ACCESS OK", 'sys');
                 const source = audioCtx.createMediaStreamSource(stream);
                 processor = audioCtx.createScriptProcessor(2048, 1, 1);
                 source.connect(processor); processor.connect(audioCtx.destination);
 
                 processor.onaudioprocess = (e) => {
-                    const input = e.inputBuffer.getChannelData(0);
-
-                    // Real-time Mic Level Monitor (User Request: Log more data)
-                    let p = 0; for (let v of input) if (Math.abs(v) > p) p = Math.abs(v);
-                    micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
-                    if (p < 0.001 && isRecording) micEl.style.color = 'red'; else micEl.style.color = '#0f0';
-
                     if (!isRecording || !ws || ws.readyState !== 1) return;
-
+                    const input = e.inputBuffer.getChannelData(0);
                     const pcm16 = new Int16Array(input.length);
                     for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
 
-                    // Manual p143 literal
                     const packet = {
                         realtime_input: {
                             media_chunks: [{
@@ -286,7 +249,7 @@
                 if (nextStartTime < now) nextStartTime = now;
                 source.start(nextStartTime);
                 nextStartTime += audioBuf.duration;
-            } catch (e) { console.error(e); }
+            } catch (e) { trace(`DECODE_ERR: ${e.message}`, 'err'); }
         }
 
         async function start() {
@@ -294,15 +257,14 @@
             if (!ws || ws.readyState !== 1) await connectGemini();
             pcmSentCount = 0; isRecording = true;
             btn.classList.add('recording'); txt.innerText = 'ON';
-            trace("--- RECORDING BEGIN ---", 'sys');
+            trace("🎤 MIC ON", 'sys');
         }
 
         function stop() {
             isRecording = false;
             btn.classList.remove('recording'); txt.innerText = 'READY';
-            trace(`--- RECORDING END (Sent ${pcmSentCount} pkts) ---`, 'sys');
+            trace(`🎤 MIC OFF (Sent ${pcmSentCount} pkts)`, 'sys');
             if (ws && ws.readyState === 1) {
-                // Manual p251/277: Literal
                 ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
                 trace("SENT: audio_stream_end", 'send');
             }
@@ -311,7 +273,7 @@
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.2.5 Strict Compliance Engine Online.");
+        trace("v1.2.6 Wire-Strict Ready.");
     </script>
 </body>
 
