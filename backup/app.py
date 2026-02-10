@@ -258,7 +258,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 elif call.name == "add_task": res = await add_task(call.args["title"])
                                 
                                 if res:
-                                    # print(f"🔧 ツール結果送信: {call.name}")
+                                    print(f"🔧 ツール結果送信: {call.name}")
                                     await session.send(input=types.LiveClientToolResponse(
                                         function_responses=[types.LiveClientFunctionResponse(
                                             name=call.name, id=call.id, response={"result": res}
@@ -266,7 +266,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     ))
                         
                         if message.server_content and message.server_content.turn_complete:
-                            pass # print("✅ Gemini のターンが完了しました")
+                            print("✅ Gemini のターンが完了しました")
                 except Exception as e:
                     print(f"❌ Gemini 通信エラー: {e}")
                     print("💡 ヒント: APIキーの制限（ウェブサイト制限）が有効なままになっていませんか？ Pythonから使う場合は制限を外す必要があります。")

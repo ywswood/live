@@ -161,13 +161,12 @@
         const traceEl = document.getElementById('fullTrace'), micEl = document.getElementById('micLevel'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
 
         function trace(msg, type = '') {
-            if (type === 'audio' || type === 'recv' || type === 'send') return; // 高頻度ログをスキップ
             const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
             const div = document.createElement('div');
             div.className = type ? 'trace-' + type : '';
             div.innerText = `[${time}] ${msg}`;
             traceEl.appendChild(div);
-            if (traceEl.childNodes.length > 100) traceEl.removeChild(traceEl.firstChild);
+            if (traceEl.childNodes.length > 1000) traceEl.removeChild(traceEl.firstChild);
             traceEl.scrollTop = traceEl.scrollHeight;
         }
 

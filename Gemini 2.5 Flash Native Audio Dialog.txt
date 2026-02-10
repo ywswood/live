@@ -1,0 +1,844 @@
+メイン コンテンツにスキップ
+Gemini API
+検索
+/
+
+
+日本語
+Community
+クックブック
+API キーを取得する
+
+譲
+ドキュメント
+API リファレンス
+
+ホーム
+Gemini API
+ドキュメント
+Live API capabilities guide
+
+
+
+
+
+プレビュー: Live API はプレビュー版です。
+これは、Live API で利用可能な機能と構成について説明する包括的なガイドです。概要と一般的なユースケースのサンプルコードについては、Live API を使ってみるをご覧ください。
+
+始める前に
+コア コンセプトを理解する: まだ読んでいない場合は、まず Live API を使ってみる ページをご覧ください。ここでは、Live API の基本原則、仕組み、さまざまな実装方法について説明します。
+AI Studio で Live API を試す: 構築を開始する前に、Google AI Studio で Live API を試してみることをおすすめします。Google AI Studio で Live API を使用するには、[ストリーム] を選択します。
+接続を確立する
+次の例は、API キーを使用して接続を作成する方法を示しています。
+
+Python
+JavaScript
+
+import asyncio
+from google import genai
+
+client = genai.Client()
+
+model = "gemini-2.5-flash-native-audio-preview-12-2025"
+config = {"response_modalities": ["AUDIO"]}
+
+async def main():
+    async with client.aio.live.connect(model=model, config=config) as session:
+        print("Session started")
+        # Send content...
+
+if __name__ == "__main__":
+    asyncio.run(main())
+インタラクション モダリティ
+以降のセクションでは、Live API で使用可能なさまざまな入出力モダリティの例とコンテキストについて説明します。
+
+音声の送受信
+最も一般的な音声の例である音声から音声への変換については、スタートガイドをご覧ください。
+
+オーディオ形式
+Live API の音声データは常に RAW、リトル エンディアン、16 ビット PCM です。オーディオ出力は常に 24 kHz のサンプルレートを使用します。入力音声はネイティブで 16 kHz ですが、Live API は必要に応じてリサンプリングするため、任意のサンプルレートを送信できます。入力音声のサンプルレートを伝えるには、音声を含む各 Blob の MIME タイプを audio/pcm;rate=16000 などの値に設定します。
+
+テキストを送信しています
+テキストを送信する手順は次のとおりです。
+
+Python
+JavaScript
+
+message = "Hello, how are you?"
+await session.send_client_content(turns=message, turn_complete=True)
+コンテンツの増分更新
+増分更新を使用して、テキスト入力の送信、セッション コンテキストの確立、セッション コンテキストの復元を行います。コンテキストが短い場合は、ターンバイターンのインタラクションを送信して、イベントの正確なシーケンスを表すことができます。
+
+Python
+JavaScript
+turns = [
+    {"role": "user", "parts": [{"text": "What is the capital of France?"}]},
+    {"role": "model", "parts": [{"text": "Paris"}]},
+]
+
+await session.send_client_content(turns=turns, turn_complete=False)
+
+turns = [{"role": "user", "parts": [{"text": "What is the capital of Germany?"}]}]
+
+await session.send_client_content(turns=turns, turn_complete=True)
+コンテキストが長い場合は、1 つのメッセージの概要を提供して、後続のインタラクション用にコンテキスト ウィンドウを空けておくことをおすすめします。セッション コンテキストを読み込む別の方法については、セッションの再開をご覧ください。
+
+音声文字起こし
+モデルのレスポンスに加えて、音声出力と音声入力の両方の文字起こしを受け取ることもできます。
+
+モデルの音声出力の文字起こしを有効にするには、セットアップ構成で output_audio_transcription を送信します。文字起こし言語は、モデルのレスポンスから推測されます。
+
+Python
+JavaScript
+import asyncio
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+model = "gemini-2.5-flash-native-audio-preview-12-2025"
+
+config = {
+    "response_modalities": ["AUDIO"],
+    "output_audio_transcription": {}
+}
+
+async def main():
+    async with client.aio.live.connect(model=model, config=config) as session:
+        message = "Hello? Gemini are you there?"
+
+        await session.send_client_content(
+            turns={"role": "user", "parts": [{"text": message}]}, turn_complete=True
+        )
+
+        async for response in session.receive():
+            if response.server_content.model_turn:
+                print("Model turn:", response.server_content.model_turn)
+            if response.server_content.output_transcription:
+                print("Transcript:", response.server_content.output_transcription.text)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+モデルの音声入力の文字起こしを有効にするには、セットアップ構成で input_audio_transcription を送信します。
+
+Python
+JavaScript
+import asyncio
+from pathlib import Path
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+model = "gemini-2.5-flash-native-audio-preview-12-2025"
+
+config = {
+    "response_modalities": ["AUDIO"],
+    "input_audio_transcription": {},
+}
+
+async def main():
+    async with client.aio.live.connect(model=model, config=config) as session:
+        audio_data = Path("16000.pcm").read_bytes()
+
+        await session.send_realtime_input(
+            audio=types.Blob(data=audio_data, mime_type='audio/pcm;rate=16000')
+        )
+
+        async for msg in session.receive():
+            if msg.server_content.input_transcription:
+                print('Transcript:', msg.server_content.input_transcription.text)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+音声と動画をストリーミングする
+ストリーミング音声およびストリーミング動画の形式で Live API を使用する方法の例を確認するには、クックブック リポジトリで「Live API - 使ってみる」ファイルを実行します。
+
+Colab で表示
+
+音声と言語を変更する
+ネイティブ音声出力モデルは、テキスト読み上げ（TTS）モデルで利用可能な音声のいずれかをサポートします。AI Studio で、すべての音声を聞くことができます。
+
+音声を指定するには、セッション構成の一部として、speechConfig オブジェクト内に音声名を設定します。
+
+Python
+JavaScript
+config = {
+    "response_modalities": ["AUDIO"],
+    "speech_config": {
+        "voice_config": {"prebuilt_voice_config": {"voice_name": "Kore"}}
+    },
+}
+注: generateContent API を使用している場合、使用可能な音声のセットは若干異なります。generateContent オーディオ生成音声については、オーディオ生成ガイドをご覧ください。
+Live API は複数の言語をサポートしています。ネイティブ音声出力モデルは、適切な言語を自動的に選択し、言語コードの明示的な設定をサポートしていません。
+
+ネイティブ オーディオ機能
+最新のモデルにはネイティブ音声出力が搭載されており、自然でリアルな音声を提供し、多言語対応のパフォーマンスを向上させます。ネイティブ音声では、感情認識対話、プロアクティブ音声（モデルが入力への応答のタイミングをインテリジェントに判断する）、「思考」などの高度な機能も利用できます。
+
+アフェクティブ ダイアログ
+この機能を使用すると、Gemini は入力された表現と口調に応じて回答スタイルを調整できます。
+
+アフェクティブ ダイアログを使用するには、セットアップ メッセージで API バージョンを v1alpha に設定し、enable_affective_dialog を true に設定します。
+
+Python
+JavaScript
+client = genai.Client(http_options={"api_version": "v1alpha"})
+
+config = types.LiveConnectConfig(
+    response_modalities=["AUDIO"],
+    enable_affective_dialog=True
+)
+コンテキストに応じた音声にのみ対応
+この機能が有効になっている場合、コンテンツが関連性のないものであると Gemini が判断した場合は、Gemini はプロアクティブに応答しないことがあります。
+
+これを使用するには、API バージョンを v1alpha に設定し、セットアップ メッセージの proactivity フィールドを構成して、proactive_audio を true に設定します。
+
+Python
+JavaScript
+client = genai.Client(http_options={"api_version": "v1alpha"})
+
+config = types.LiveConnectConfig(
+    response_modalities=["AUDIO"],
+    proactivity={'proactive_audio': True}
+)
+思考モード
+最新のネイティブ オーディオ出力モデル gemini-2.5-flash-native-audio-preview-12-2025 は、思考機能をサポートしており、動的思考がデフォルトで有効になっています。
+
+thinkingBudget パラメータは、回答の生成時に使用する思考トークンの数に関するガイダンスをモデルに提供します。thinkingBudget を 0 に設定して、思考を無効にできます。モデルの thinkingBudget 構成の詳細については、思考予算のドキュメントをご覧ください。
+
+Python
+JavaScript
+model = "gemini-2.5-flash-native-audio-preview-12-2025"
+
+config = types.LiveConnectConfig(
+    response_modalities=["AUDIO"]
+    thinking_config=types.ThinkingConfig(
+        thinking_budget=1024,
+    )
+)
+
+async with client.aio.live.connect(model=model, config=config) as session:
+    # Send audio input and receive audio
+また、構成で includeThoughts を true に設定すると、思考の要約を有効にできます。詳しくは、思考の要約をご覧ください。
+
+Python
+JavaScript
+model = "gemini-2.5-flash-native-audio-preview-12-2025"
+
+config = types.LiveConnectConfig(
+    response_modalities=["AUDIO"]
+    thinking_config=types.ThinkingConfig(
+        thinking_budget=1024,
+        include_thoughts=True
+    )
+)
+音声アクティビティ検出（VAD）
+音声アクティビティ検出（VAD）により、モデルは人が話しているときを認識できます。これは、ユーザーがいつでもモデルを中断できるようにするため、自然な会話を作成するうえで不可欠です。
+
+VAD が中断を検出すると、進行中の生成はキャンセルされ、破棄されます。クライアントにすでに送信された情報だけがセッション履歴に保持されます。その後、サーバーは中断を報告する BidiGenerateContentServerContent メッセージを送信します。
+
+Gemini サーバーは保留中の関数呼び出しを破棄し、キャンセルされた呼び出しの ID を記載した BidiGenerateContentServerContent メッセージを送信します。
+
+Python
+JavaScript
+async for response in session.receive():
+    if response.server_content.interrupted is True:
+        # The generation was interrupted
+
+        # If realtime playback is implemented in your application,
+        # you should stop playing audio and clear queued playback here.
+自動 VAD
+デフォルトでは、モデルは連続した音声入力ストリームに対して VAD を自動的に実行します。VAD は、セットアップ構成の realtimeInputConfig.automaticActivityDetection フィールドで構成できます。
+
+音声ストリームが 1 秒以上一時停止すると（たとえば、ユーザーがマイクをオフにした場合）、キャッシュに保存された音声をフラッシュするために audioStreamEnd イベントが送信される必要があります。クライアントはいつでも音声データの送信を再開できます。
+
+Python
+JavaScript
+# example audio file to try:
+# URL = "https://storage.googleapis.com/generativeai-downloads/data/hello_are_you_there.pcm"
+# !wget -q $URL -O sample.pcm
+import asyncio
+from pathlib import Path
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+model = "gemini-live-2.5-flash-preview"
+
+config = {"response_modalities": ["TEXT"]}
+
+async def main():
+    async with client.aio.live.connect(model=model, config=config) as session:
+        audio_bytes = Path("sample.pcm").read_bytes()
+
+        await session.send_realtime_input(
+            audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
+        )
+
+        # if stream gets paused, send:
+        # await session.send_realtime_input(audio_stream_end=True)
+
+        async for response in session.receive():
+            if response.text is not None:
+                print(response.text)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+send_realtime_input を使用すると、API は VAD に基づいて音声に自動的に応答します。send_client_content はメッセージをモデル コンテキストに順序どおりに追加しますが、send_realtime_input は決定論的な順序を犠牲にして応答性を最適化します。
+
+VAD の自動構成
+VAD アクティビティをより詳細に制御するには、次のパラメータを構成します。詳細については、API リファレンスをご覧ください。
+
+Python
+JavaScript
+from google.genai import types
+
+config = {
+    "response_modalities": ["TEXT"],
+    "realtime_input_config": {
+        "automatic_activity_detection": {
+            "disabled": False, # default
+            "start_of_speech_sensitivity": types.StartSensitivity.START_SENSITIVITY_LOW,
+            "end_of_speech_sensitivity": types.EndSensitivity.END_SENSITIVITY_LOW,
+            "prefix_padding_ms": 20,
+            "silence_duration_ms": 100,
+        }
+    }
+}
+自動 VAD を無効にする
+また、セットアップ メッセージで realtimeInputConfig.automaticActivityDetection.disabled を true に設定することで、自動 VAD を無効にすることもできます。この構成では、クライアントがユーザーの音声の検出と、適切なタイミングでの activityStart メッセージと activityEnd メッセージの送信を行います。この構成では audioStreamEnd は送信されません。代わりに、ストリームの中断は activityEnd メッセージでマークされます。
+
+Python
+JavaScript
+config = {
+    "response_modalities": ["TEXT"],
+    "realtime_input_config": {"automatic_activity_detection": {"disabled": True}},
+}
+
+async with client.aio.live.connect(model=model, config=config) as session:
+    # ...
+    await session.send_realtime_input(activity_start=types.ActivityStart())
+    await session.send_realtime_input(
+        audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
+    )
+    await session.send_realtime_input(activity_end=types.ActivityEnd())
+    # ...
+トークン数
+消費されたトークンの合計数は、返されたサーバー メッセージの usageMetadata フィールドで確認できます。
+
+Python
+JavaScript
+async for message in session.receive():
+    # The server will periodically send messages that include UsageMetadata.
+    if message.usage_metadata:
+        usage = message.usage_metadata
+        print(
+            f"Used {usage.total_token_count} tokens in total. Response token breakdown:"
+        )
+        for detail in usage.response_tokens_details:
+            match detail:
+                case types.ModalityTokenCount(modality=modality, token_count=count):
+                    print(f"{modality}: {count}")
+メディアの解像度
+入力メディアのメディア解像度を指定するには、セッション構成の一部として mediaResolution フィールドを設定します。
+
+Python
+JavaScript
+from google.genai import types
+
+config = {
+    "response_modalities": ["AUDIO"],
+    "media_resolution": types.MediaResolution.MEDIA_RESOLUTION_LOW,
+}
+制限事項
+プロジェクトを計画する際は、Live API の次の制限事項を考慮してください。
+
+レスポンス モダリティ
+セッション構成では、セッションごとに 1 つのレスポンス モダリティ（TEXT または AUDIO）のみを設定できます。両方を設定すると、構成エラー メッセージが表示されます。つまり、同じセッションでテキストと音声の両方ではなく、テキストまたは音声のいずれかで応答するようにモデルを構成できます。
+
+クライアント認証
+Live API は、デフォルトでサーバー間認証のみを提供します。クライアント / サーバー アプローチを使用して Live API アプリケーションを実装する場合は、エフェメラル トークンを使用してセキュリティ リスクを軽減する必要があります。
+
+セッション継続時間
+音声のみのセッションは 15 分に制限され、音声と動画のセッションは 2 分に制限されます。ただし、セッション継続時間を無制限に延長するために、さまざまなセッション管理手法を構成できます。
+
+コンテキスト ウィンドウ
+セッションのコンテキスト ウィンドウの上限は次のとおりです。
+
+ネイティブ音声出力モデルの場合は 128,000 トークン
+他の Live API モデルでは 32,000 トークン
+サポートされている言語
+Live API は、次の 70 言語をサポートしています。
+
+注: ネイティブ音声出力モデルは、会話中に言語を自然に切り替えることができます。システム指示で言語を指定して、話す言語を制限することもできます。
+言語	BCP-47 コード	言語	BCP-47 コード
+アフリカーンス語	af	カンナダ語	kn
+アルバニア語	sq	カザフ語	kk
+アムハラ語	am	クメール語	km
+アラビア語	ar	韓国語	ko
+アルメニア語	hy	ラオ語	lo
+アッサム語	as	ラトビア語	lv
+アゼルバイジャン語	az	リトアニア語	lt
+バスク語	eu	マケドニア語	mk
+ベラルーシ語	be	マレー語	ms
+ベンガル語	bn	マラヤーラム語	ml
+ボスニア語	bs	マラーティー語	mr
+ブルガリア語	bg	モンゴル語	mn
+カタロニア語	ca	ネパール語	ne
+中国語	zh	ノルウェー語	no
+クロアチア語	hr	オディア語	or
+チェコ語	cs	ポーランド語	pl
+デンマーク語	da	ポルトガル語	pt
+オランダ語	nl	パンジャブ語	pa
+英語	en	ルーマニア語	ro
+エストニア語	et	ロシア語	ru
+フィリピン語	fil	セルビア語	sr
+フィンランド語	fi	スロバキア語	sk
+フランス語	fr	スロベニア語	sl
+ガリシア語	gl	スペイン語	es
+ジョージア語	ka	スワヒリ語	sw
+ドイツ語	de	スウェーデン語	sv
+ギリシャ語	el	タミル語	ta
+グジャラート語	gu	テルグ語	te
+ヘブライ語	iw	タイ語	th
+ヒンディー語	hi	トルコ語	tr
+ハンガリー語	hu	ウクライナ語	uk
+アイスランド語	is	ウルドゥー語	ur
+インドネシア語	id	ウズベク語	uz
+イタリア語	it	ベトナム語	vi
+日本語	ja	ズールー語	zu
+
+メイン コンテンツにスキップ
+Gemini API
+検索
+/
+
+
+日本語
+Community
+クックブック
+API キーを取得する
+
+譲
+ドキュメント
+API リファレンス
+
+ホーム
+Gemini API
+ドキュメント
+Tool use with Live API
+
+
+
+ツールを使用することで、Live API は会話だけでなく、現実世界でのアクションの実行や外部コンテキストの取得も可能になり、リアルタイム接続を維持できます。Live API を使用して、関数呼び出しや Google 検索などのツールを定義できます。
+
+サポートされているツールの概要
+Live API モデルで使用できるツールを簡単に紹介します。
+
+ツール	gemini-2.5-flash-native-audio-preview-12-2025
+検索	○
+関数呼び出し	○
+Google マップ	いいえ
+コードの実行	いいえ
+URL コンテキスト	いいえ
+関数呼び出し
+Live API は、通常のコンテンツ生成リクエストと同様に、関数呼び出しをサポートしています。関数呼び出しを使用すると、Live API が外部データやプログラムとやり取りできるようになり、アプリケーションで実行できることが大幅に増えます。
+
+関数宣言は、セッション構成の一部として定義できます。ツール呼び出しを受け取った後、クライアントは session.send_tool_response メソッドを使用して FunctionResponse オブジェクトのリストで応答する必要があります。
+
+詳細については、関数呼び出しのチュートリアルをご覧ください。
+
+注: generateContent API とは異なり、Live API はツールのレスポンスの自動処理をサポートしていません。クライアント コードでツール レスポンスを手動で処理する必要があります。
+Python
+JavaScript
+import asyncio
+import wave
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+
+model = "gemini-2.5-flash-native-audio-preview-12-2025"
+
+# Simple function definitions
+turn_on_the_lights = {"name": "turn_on_the_lights"}
+turn_off_the_lights = {"name": "turn_off_the_lights"}
+
+tools = [{"function_declarations": [turn_on_the_lights, turn_off_the_lights]}]
+config = {"response_modalities": ["AUDIO"], "tools": tools}
+
+async def main():
+    async with client.aio.live.connect(model=model, config=config) as session:
+        prompt = "Turn on the lights please"
+        await session.send_client_content(turns={"parts": [{"text": prompt}]})
+
+        wf = wave.open("audio.wav", "wb")
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)  # Output is 24kHz
+
+        async for response in session.receive():
+            if response.data is not None:
+                wf.writeframes(response.data)
+            elif response.tool_call:
+                print("The tool was called")
+                function_responses = []
+                for fc in response.tool_call.function_calls:
+                    function_response = types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response={ "result": "ok" } # simple, hard-coded function response
+                    )
+                    function_responses.append(function_response)
+
+                await session.send_tool_response(function_responses=function_responses)
+
+        wf.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+モデルは、単一のプロンプトから複数の関数呼び出しと、出力の連結に必要なコードを生成できます。このコードはサンドボックス環境で実行され、後続の BidiGenerateContentToolCall メッセージを生成します。
+
+非同期関数呼び出し
+関数呼び出しはデフォルトで順番に実行されます。つまり、各関数呼び出しの結果が表示されるまで実行は停止します。これにより、順次処理が保証されます。つまり、関数が実行されている間は、モデルとのやり取りを続行できません。
+
+会話をブロックしたくない場合は、関数を非同期で実行するようにモデルに指示できます。これを行うには、まず関数定義に behavior を追加する必要があります。
+
+Python
+JavaScript
+# Non-blocking function definitions
+turn_on_the_lights = {"name": "turn_on_the_lights", "behavior": "NON_BLOCKING"} # turn_on_the_lights will run asynchronously
+turn_off_the_lights = {"name": "turn_off_the_lights"} # turn_off_the_lights will still pause all interactions with the model
+NON-BLOCKING を使用すると、モデルとのやり取りを継続しながら、関数を非同期で実行できます。
+
+次に、scheduling パラメータを使用して、FunctionResponse を受け取ったときのモデルの動作を指定する必要があります。次のいずれかを行うことができます。
+
+実行中の処理を中断して、すぐにレスポンスを通知する（scheduling="INTERRUPT"）。
+現在実行中の処理（scheduling="WHEN_IDLE"）が完了するまで待機します。
+または、何もせずに、その知識を後でディスカッションで使用する（scheduling="SILENT"）
+
+Python
+JavaScript
+# for a non-blocking function definition, apply scheduling in the function response:
+  function_response = types.FunctionResponse(
+      id=fc.id,
+      name=fc.name,
+      response={
+          "result": "ok",
+          "scheduling": "INTERRUPT" # Can also be WHEN_IDLE or SILENT
+      }
+  )
+Google 検索によるグラウンディング
+セッション構成の一部として、Google 検索によるグラウンディングを有効にできます。これにより、Live API の精度が向上し、ハルシネーションを防ぐことができます。詳しくは、グラウンディング チュートリアルをご覧ください。
+
+Python
+JavaScript
+import asyncio
+import wave
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+
+model = "gemini-2.5-flash-native-audio-preview-12-2025"
+
+tools = [{'google_search': {}}]
+config = {"response_modalities": ["AUDIO"], "tools": tools}
+
+async def main():
+    async with client.aio.live.connect(model=model, config=config) as session:
+        prompt = "When did the last Brazil vs. Argentina soccer match happen?"
+        await session.send_client_content(turns={"parts": [{"text": prompt}]})
+
+        wf = wave.open("audio.wav", "wb")
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)  # Output is 24kHz
+
+        async for chunk in session.receive():
+            if chunk.server_content:
+                if chunk.data is not None:
+                    wf.writeframes(chunk.data)
+
+                # The model might generate and execute Python code to use Search
+                model_turn = chunk.server_content.model_turn
+                if model_turn:
+                    for part in model_turn.parts:
+                        if part.executable_code is not None:
+                            print(part.executable_code.code)
+
+                        if part.code_execution_result is not None:
+                            print(part.code_execution_result.output)
+
+        wf.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+複数のツールを組み合わせる
+Live API 内で複数のツールを組み合わせることで、アプリケーションの機能をさらに強化できます。
+
+Python
+JavaScript
+prompt = """
+Hey, I need you to do two things for me.
+
+1. Use Google Search to look up information about the largest earthquake in California the week of Dec 5 2024?
+2. Then turn on the lights
+
+Thanks!
+"""
+
+tools = [
+    {"google_search": {}},
+    {"function_declarations": [turn_on_the_lights, turn_off_the_lights]},
+]
+
+config = {"response_modalities": ["AUDIO"], "tools": tools}
+
+# ... remaining model call
+
+
+メイン コンテンツにスキップ
+Gemini API
+検索
+/
+
+
+日本語
+Community
+クックブック
+API キーを取得する
+
+譲
+ドキュメント
+API リファレンス
+
+ホーム
+Gemini API
+ドキュメント
+Session management with Live API
+
+
+
+Live API では、セッションは、入力と出力が同じ接続で継続的にストリーミングされる永続的な接続を指します（仕組みの詳細をご覧ください）。この独自のセッション設計により、低レイテンシが実現し、独自の機能がサポートされますが、セッションの制限時間や早期終了などの問題も発生する可能性があります。このガイドでは、Live API の使用時に発生する可能性のあるセッション管理の課題を克服するための戦略について説明します。
+
+セッションの有効期間
+圧縮なしの場合、音声のみのセッションは 15 分、音声と動画のセッションは 2 分に制限されます。これらの上限を超えるとセッション（したがって接続）が終了しますが、コンテキスト ウィンドウの圧縮を使用すると、セッションを無制限に延長できます。
+
+接続の有効期間も約 10 分に制限されています。接続が終了すると、セッションも終了します。この場合、セッションの再開を使用して、複数の接続でアクティブな状態を維持するように 1 つのセッションを構成できます。接続が終了する前に GoAway メッセージも届くため、さらなるアクションを実行できます。
+
+コンテキスト ウィンドウの圧縮
+セッションを長くして、接続が突然終了しないようにするには、セッション構成の一部として contextWindowCompression フィールドを設定して、コンテキスト ウィンドウの圧縮を有効にします。
+
+ContextWindowCompressionConfig では、スライディング ウィンドウ メカニズムと、圧縮をトリガーするトークン数を構成できます。
+
+Python
+JavaScript
+from google.genai import types
+
+config = types.LiveConnectConfig(
+    response_modalities=["AUDIO"],
+    context_window_compression=(
+        # Configures compression with default parameters.
+        types.ContextWindowCompressionConfig(
+            sliding_window=types.SlidingWindow(),
+        )
+    ),
+)
+セッションの再開
+サーバーが WebSocket 接続を定期的にリセットしたときにセッションが終了しないようにするには、設定構成内の sessionResumption フィールドを構成します。
+
+この構成を渡すと、サーバーは SessionResumptionUpdate メッセージを送信します。このメッセージは、後続の接続の SessionResumptionConfig.handle として最後の再開トークンを渡すことで、セッションの再開に使用できます。
+
+再開トークンは、最後のセッションの終了後 2 時間有効です。
+
+Python
+JavaScript
+import asyncio
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+model = "gemini-2.5-flash-native-audio-preview-12-2025"
+
+async def main():
+    print(f"Connecting to the service with handle {previous_session_handle}...")
+    async with client.aio.live.connect(
+        model=model,
+        config=types.LiveConnectConfig(
+            response_modalities=["AUDIO"],
+            session_resumption=types.SessionResumptionConfig(
+                # The handle of the session to resume is passed here,
+                # or else None to start a new session.
+                handle=previous_session_handle
+            ),
+        ),
+    ) as session:
+        while True:
+            await session.send_client_content(
+                turns=types.Content(
+                    role="user", parts=[types.Part(text="Hello world!")]
+                )
+            )
+            async for message in session.receive():
+                # Periodically, the server will send update messages that may
+                # contain a handle for the current state of the session.
+                if message.session_resumption_update:
+                    update = message.session_resumption_update
+                    if update.resumable and update.new_handle:
+                        # The handle should be retained and linked to the session.
+                        return update.new_handle
+
+                # For the purposes of this example, placeholder input is continually fed
+                # to the model. In non-sample code, the model inputs would come from
+                # the user.
+                if message.server_content and message.server_content.turn_complete:
+                    break
+
+if __name__ == "__main__":
+    asyncio.run(main())
+セッションが切断される前にメッセージを受信する
+サーバーは、現在の接続がまもなく終了することを示す GoAway メッセージを送信します。このメッセージには、残り時間を示す timeLeft が含まれています。これにより、接続が ABORTED として終了する前に、さらなるアクションを実行できます。
+
+Python
+JavaScript
+async for response in session.receive():
+    if response.go_away is not None:
+        # The connection will soon be terminated
+        print(response.go_away.time_left)
+生成が完了したときにメッセージを受信する
+サーバーは、モデルがレスポンスの生成を完了したことを示す generationComplete メッセージを送信します。
+
+Python
+JavaScript
+async for response in session.receive():
+    if response.server_content.generation_complete is True:
+        # The generation is complete
+
+メイン コンテンツにスキップ
+Gemini API
+検索
+/
+
+
+日本語
+Community
+クックブック
+API キーを取得する
+
+譲
+ドキュメント
+API リファレンス
+
+ホーム
+Gemini API
+ドキュメント
+Ephemeral tokens
+
+
+
+エフェメラル トークンは、WebSockets を介して Gemini API にアクセスするための有効期間の短い認証トークンです。これらは、ユーザーのデバイスから API に直接接続する場合（クライアントからサーバーへの実装）のセキュリティを強化するように設計されています。標準の API キーと同様に、エフェメラル トークンはウェブブラウザやモバイルアプリなどのクライアントサイド アプリケーションから抽出できます。ただし、一時トークンはすぐに期限切れになり、制限される可能性があるため、本番環境のセキュリティ リスクを大幅に軽減できます。API キーのセキュリティを強化するために、クライアントサイド アプリケーションから Live API に直接アクセスする際に使用する必要があります。
+
+注: 現在、エフェメラル トークンは Live API とのみ互換性があります。
+一時トークンの仕組み
+エフェメラル トークンの仕組みの概要は次のとおりです。
+
+クライアント（ウェブアプリなど）がバックエンドで認証されます。
+バックエンドが Gemini API のプロビジョニング サービスにエフェメラル トークンをリクエストします。
+Gemini API が有効期間の短いトークンを発行します。
+バックエンドは、Live API への WebSocket 接続用にトークンをクライアントに送信します。これを行うには、API キーをエフェメラル トークンに置き換えます。
+クライアントは、トークンを API キーとして使用します。
+一時トークンの概要
+
+この方法では、クライアントサイドにデプロイされた有効期間の長い API キーとは異なり、トークンが抽出されても有効期間が短いため、セキュリティが強化されます。クライアントがデータを Gemini に直接送信するため、レイテンシも改善され、バックエンドでリアルタイム データをプロキシする必要もなくなります。
+
+エフェメラル トークンを作成する
+Gemini からエフェメラル トークンを取得する簡単な例を次に示します。デフォルトでは、このリクエスト（newSessionExpireTime）のトークンを使用して新しい Live API セッションを開始するのに 1 分、その接続を介してメッセージを送信するのに 30 分（expireTime）が与えられます。
+
+Python
+JavaScript
+import datetime
+
+now = datetime.datetime.now(tz=datetime.timezone.utc)
+
+client = genai.Client(
+    http_options={'api_version': 'v1alpha',}
+)
+
+token = client.auth_tokens.create(
+    config = {
+    'uses': 1, # The ephemeral token can only be used to start a single session
+    'expire_time': now + datetime.timedelta(minutes=30), # Default is 30 minutes in the future
+    # 'expire_time': '2025-05-17T00:00:00Z',   # Accepts isoformat.
+    'new_session_expire_time': now + datetime.timedelta(minutes=1), # Default 1 minute in the future
+    'http_options': {'api_version': 'v1alpha'},
+  }
+)
+
+# You'll need to pass the value under token.name back to your client to use it
+expireTime 値の制約、デフォルト、その他のフィールド仕様については、API リファレンスをご覧ください。expireTime の期間内では、10 分ごとに通話を再接続する必要があります（uses: 1 の場合でも、同じトークンで再接続できます）。sessionResumption
+
+エフェメラル トークンを一連の構成にロックすることもできます。これは、アプリケーションのセキュリティをさらに強化し、システム指示をサーバーサイドに保持するのに役立ちます。
+
+Python
+JavaScript
+client = genai.Client(
+    http_options={'api_version': 'v1alpha',}
+)
+
+token = client.auth_tokens.create(
+    config = {
+    'uses': 1,
+    'live_connect_constraints': {
+        'model': 'gemini-2.5-flash-native-audio-preview-12-2025',
+        'config': {
+            'session_resumption':{},
+            'temperature':0.7,
+            'response_modalities':['AUDIO']
+        }
+    },
+    'http_options': {'api_version': 'v1alpha'},
+    }
+)
+
+# You'll need to pass the value under token.name back to your client to use it
+フィールドのサブセットをロックすることもできます。詳しくは、SDK のドキュメントをご覧ください。
+
+エフェメラル トークンを使用して Live API に接続する
+一時トークンを取得したら、API キーと同じように使用します（ただし、ライブ API でのみ機能し、API の v1alpha バージョンでのみ機能します）。
+
+エフェメラル トークンの使用は、クライアントからサーバーへの実装アプローチに従うアプリケーションをデプロイする場合にのみ価値があります。
+
+JavaScript
+import { GoogleGenAI, Modality } from '@google/genai';
+
+// Use the token generated in the "Create an ephemeral token" section here
+const ai = new GoogleGenAI({
+  apiKey: token.name
+});
+const model = 'gemini-2.5-flash-native-audio-preview-12-2025';
+const config = { responseModalities: [Modality.AUDIO] };
+
+async function main() {
+
+  const session = await ai.live.connect({
+    model: model,
+    config: config,
+    callbacks: { ... },
+  });
+
+  // Send content...
+
+  session.close();
+}
+
+main();
+注: SDK を使用しない場合は、エフェメラル トークンを access_token クエリ パラメータで渡すか、認証スキーム Token が付加された HTTP Authorization で渡す必要があります。
+その他の例については、Live API スタートガイドをご覧ください。
+
+ベスト プラクティス
+expire_time パラメータを使用して、有効期限の短い期間を設定します。
+トークンの有効期限が切れるため、プロビジョニング プロセスを再開する必要があります。
+独自のバックエンドの安全な認証を検証します。エフェメラル トークンのセキュリティは、バックエンドの認証方法のセキュリティに依存します。
+通常、このパスは安全と見なされるため、バックエンドから Gemini への接続にエフェメラル トークンを使用することは避けてください。
+制限事項
+現時点では、エフェメラル トークンは Live API とのみ互換性があります。
+
