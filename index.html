@@ -3,11 +3,11 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.1.1 - Gemini 2.5 Native</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Voice Secretary v1.1.2 - Connection Focus</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://accounts.google.com/gsi/client" onload="trace('GSI JS Loaded')" async defer></script>
+    <!-- GSI onloadを明示的にハンドル -->
+    <script src="https://accounts.google.com/gsi/client" onload="initAuthClient()" async defer></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <style>
         :root {
@@ -69,7 +69,7 @@
             bottom: 0;
             left: 0;
             width: 100%;
-            height: 45vh;
+            height: 40vh;
             background: rgba(0, 0, 0, 0.95);
             border-top: 1px solid #444;
             font-size: 9px;
@@ -96,37 +96,44 @@
         .trace-recv {
             color: #f0f;
         }
+
+        .trace-conn {
+            color: #fff;
+            background: #00f;
+        }
     </style>
 </head>
 
 <body class="h-screen flex flex-col items-center">
+    <!-- UI Area -->
     <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-10 px-8 text-center"
-        style="height: 55vh">
+        style="height: 60vh">
         <header>
-            <h1 class="text-xl font-bold italic tracking-tighter">GEMINI 2.5 NATIVE <span
-                    class="text-xs text-zinc-600 block">v1.1.1 RAW AUDIO</span></h1>
+            <h1 class="text-xl font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
+                    class="text-[10px] text-zinc-600 block">v1.1.2 Connectivity Check</span></h1>
         </header>
 
         <div class="main flex-1 flex items-center justify-center">
             <div id="btn" class="relative w-40 h-40 cursor-pointer active:scale-95 transition-transform">
                 <div class="ring"></div>
                 <div class="fill absolute inset-3 bg-zinc-950 rounded-full flex flex-col items-center justify-center">
-                    <div id="recText" class="text-[10px] font-bold text-zinc-600 tracking-widest uppercase">STANDBY
-                    </div>
+                    <div id="recText" class="text-[10px] font-bold text-zinc-600 tracking-widest uppercase">READY</div>
                 </div>
             </div>
         </div>
 
         <div class="w-full pb-4">
-            <div id="status" class="text-zinc-500 text-[10px] mb-2 font-mono">Trace initialized.</div>
+            <div id="status" class="text-zinc-500 text-[10px] mb-2 font-mono">Logger ready.</div>
             <div id="authBtn"
-                class="bg-white text-black px-6 py-2 rounded-full font-bold text-[10px] cursor-pointer hidden mx-auto">
-                GOOGLE LOGIN</div>
+                class="bg-white text-black px-8 py-3 rounded-full font-bold text-xs cursor-pointer inline-block mx-auto transition-all active:scale-90">
+                Google LOGIN (Required)</div>
         </div>
     </div>
 
     <!-- Trace Logger -->
-    <div id="fullTrace"></div>
+    <div id="fullTrace">
+        <div class="trace-sys">--- START TRACE (Tap to Clear) ---</div>
+    </div>
 
     <script>
         const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
@@ -142,46 +149,57 @@
             div.className = type ? 'trace-' + type : '';
             div.innerText = `[${time}] ${msg}`;
             traceEl.appendChild(div);
-            if (traceEl.childNodes.length > 300) traceEl.removeChild(traceEl.firstChild);
+            if (traceEl.childNodes.length > 500) traceEl.removeChild(traceEl.firstChild);
             traceEl.scrollTop = traceEl.scrollHeight;
             st.innerText = msg;
         }
-        traceEl.onclick = () => traceEl.innerHTML = '';
-        window.onerror = (m, u, l) => trace(`JS_ERR: ${m} (L${l})`, 'err');
+
+        traceEl.onclick = () => traceEl.innerHTML = '<div class="trace-sys">--- CLEARED ---</div>';
+        window.onerror = (m, u, l) => trace(`JS_ERR: ${m} at L${l}`, 'err');
 
         let tokenClient, accessToken, ws, audioCtx, processor, isRecording = false;
+        let nextStartTime = 0;
+        let pcmSentCount = 0;
 
+        // 1. Auth Initialization
         function initAuthClient() {
             try {
+                trace("Initializing Google Identity Service...", 'sys');
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: CLIENT_ID, scope: SCOPES,
                     callback: (res) => {
+                        if (res.error) { trace("Login Error: " + res.error, 'err'); return; }
                         accessToken = res.access_token;
-                        authBtn.style.display = 'none';
-                        trace("✅ AUTH SUCCESS", 'sys');
+                        authBtn.style.opacity = "0.5";
+                        authBtn.innerText = "Logged In";
+                        trace("✅ AUTH SUCCESS: Token Acquired.", 'sys');
                     },
                 });
-                authBtn.classList.remove('hidden');
-            } catch (err) { trace("GSI_INIT_ERR: " + err.message, 'err'); }
+                trace("Auth Client Ready.");
+            } catch (err) { trace("Auth Init Err: " + err.message, 'err'); }
         }
-        authBtn.onclick = () => tokenClient && tokenClient.requestAccessToken({ prompt: 'consent' });
 
-        // PCM再生用キュー
-        let nextStartTime = 0;
+        authBtn.onclick = () => {
+            trace("Auth Popup Requesting...");
+            if (tokenClient) tokenClient.requestAccessToken({ prompt: 'consent' });
+            else trace("Auth Client NOT READY", 'err');
+        };
 
+        // 2. Gemini Connection
         async function connectGemini() {
-            if (!accessToken) return;
+            if (!accessToken) { trace("LOGIN FIRST", 'err'); return; }
+
+            trace("Setting up WebSocket & AudioContext...", 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                // 仕様に基づく v1beta エンドポイント
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
-                trace(`Connecting v1beta...`, 'sys');
+                trace(`Connecting: ${url.split('?')[0]}`, 'sys');
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    trace("✅ WS OPENED", 'sys');
+                    trace("🎉 WebSocket CONNECTED!", 'conn');
                     const setup = {
                         setup: {
                             model: "models/gemini-2.5-flash",
@@ -189,48 +207,42 @@
                         }
                     };
                     ws.send(JSON.stringify(setup));
-                    trace("SETUP SENT", 'send');
+                    trace("SENT: Setup JSON", 'send');
                 };
 
-                ws.onclose = (ev) => trace(`🔌 CLOSED Code:${ev.code}`, 'err');
-                ws.onerror = (err) => trace("❌ WS ERR (Key/Domain?)", 'err');
+                ws.onclose = (ev) => trace(`🔌 DISCONNECTED Code:${ev.code} Reason:${ev.reason || 'None'}`, 'err');
+                ws.onerror = (err) => trace("❌ WebSocket ERROR (Check API Key restriction)", 'err');
 
                 ws.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
-                    if (data.setupComplete) trace("✅ GEMINI READY", 'sys');
+                    trace(`RECV: ${e.data.substring(0, 50)}...`, 'recv');
 
-                    // 24kHz Raw PCM 再生ロジック
+                    if (data.setupComplete) trace("✅ GEMINI READY: Setup Finished", 'conn');
+
                     if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
                         const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
-                        const binary = atob(base64);
-                        const len = binary.length;
-                        const bytes = new Uint8Array(len);
-                        for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+                        const binary = atob(base64), bytes = new Uint8Array(binary.length);
+                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-                        // 16-bit PCM (Little Endian) -> Float32 変換
                         const pcm16 = new Int16Array(bytes.buffer);
                         const floats = new Float32Array(pcm16.length);
                         for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
 
-                        // 24kHz で再生用バッファ作成
                         const audioBuf = audioCtx.createBuffer(1, floats.length, 24000);
                         audioBuf.getChannelData(0).set(floats);
-
                         const source = audioCtx.createBufferSource();
-                        source.buffer = audioBuf;
-                        source.connect(audioCtx.destination);
+                        source.buffer = audioBuf; source.connect(audioCtx.destination);
 
-                        // 途切れないようにスケジュール再生
                         const now = audioCtx.currentTime;
                         if (nextStartTime < now) nextStartTime = now;
                         source.start(nextStartTime);
                         nextStartTime += audioBuf.duration;
-
-                        if (pcm16.length > 0) trace(`PLAYING: ${pcm16.length} samples (24kHz)`, 'recv');
+                        trace(`PLAYING: ${pcm16.length} samples`, 'recv');
                     }
                 };
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                trace("✅ Mic Stream Access OK.", 'sys');
                 const source = audioCtx.createMediaStreamSource(stream);
                 processor = audioCtx.createScriptProcessor(2048, 1, 1);
                 source.connect(processor); processor.connect(audioCtx.destination);
@@ -250,29 +262,39 @@
                         }
                     };
                     ws.send(JSON.stringify(packet));
+                    pcmSentCount++;
+                    if (pcmSentCount % 30 === 0) trace(`STREAMING: ${pcmSentCount} packets sent`, 'send');
                 };
 
-            } catch (err) { trace(`CRITICAL_ERR: ${err.message}`, 'err'); }
+            } catch (err) { trace(`INIT_ERR: ${err.message}`, 'err'); }
         }
 
+        // 3. Button Actions
         async function start() {
-            if (!accessToken) { trace("LOGIN FIRST", 'err'); return; }
+            if (!accessToken) { trace("⚠️ LOGIN REQUIRED FIRST", 'err'); return; }
             if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
-            if (!ws || ws.readyState !== 1) await connectGemini();
+
+            if (!ws || ws.readyState !== 1) {
+                trace("No active connection. Reconnecting...");
+                await connectGemini();
+            }
+
+            pcmSentCount = 0;
             isRecording = true;
             btn.classList.add('recording'); txt.innerText = 'LISTENING';
-            nextStartTime = 0;
-            trace("--- REC START ---", 'sys');
+            trace("--- RECORDING START ---", 'sys');
         }
 
         function stop() {
             isRecording = false;
             btn.classList.remove('recording'); txt.innerText = 'READY';
-            trace("--- REC STOP ---", 'sys');
+            trace(`--- RECORDING STOP --- (${pcmSentCount} total sent)`, 'sys');
         }
 
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
+
+        trace("v1.1.2 Controller Loaded.");
     </script>
 </body>
 
