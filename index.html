@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Internal Audio AI</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google API Client Libraries -->
+    <!-- onload ハンドラを追加して、読み込み完了後に初期化するように修正 -->
+    <script src="https://accounts.google.com/gsi/client" onload="initAuthClient()" async defer></script>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <style>
+        :root {
+            --cyan: #00f2ea;
+            --pink: #ff0050;
+            --grad: linear-gradient(135deg, #ff0050, #00f2ea);
+        }
+
+        body {
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .ring {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: var(--grad);
+            mask: radial-gradient(transparent 74px, #000 76px);
+            -webkit-mask: radial-gradient(transparent 74px, #000 76px);
+            animation: spin 15s linear infinite;
+        }
+
+        .recording .ring {
+            animation: pulse 0.7s infinite;
+            mask: none;
+            -webkit-mask: none;
+            background: var(--pink);
+            opacity: 0.5;
+            transform: scale(1.2);
+            box-shadow: 0 0 60px var(--pink);
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1.05);
+            }
+
+            50% {
+                transform: scale(1.2);
+            }
+        }
+    </style>
+</head>
+
+<body class="h-screen flex flex-col items-center justify-center">
+
+    <div class="container max-w-md h-full flex flex-col items-center justify-between py-16 px-8 text-center">
+        <header>
+            <h1 class="text-4xl font-black leading-tight italic">
+                <span style="color:var(--cyan)">VOICE</span><br>SECRETARY.
+            </h1>
+        </header>
+
+        <div class="main flex-1 flex items-center justify-center">
+            <div id="btn" class="relative w-56 h-56 cursor-pointer active:scale-95 transition-transform">
+                <div class="ring"></div>
+                <div
+                    class="fill absolute inset-4 bg-zinc-900 rounded-full flex flex-col items-center justify-center border border-zinc-800 shadow-inner">
+                    <div class="text-6xl mb-2">🎙️</div>
+                    <div id="recText" class="text-[10px] font-bold text-zinc-500 tracking-widest">READY</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-box">
+            <div id="status" class="text-zinc-400 text-sm mb-4">ライブラリを読み込み中...</div>
+            <div id="authBtn"
+                class="bg-white text-black px-6 py-2 rounded-full font-bold text-sm cursor-pointer hover:bg-zinc-200 transition-colors hidden">
+                Google ログイン
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 設定 ---
+        const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
+        const CLIENT_ID = "218926241376-m5rqri5is7nsaur63vrpqjkchmai378p.apps.googleusercontent.com";
+        const SCOPES = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks";
+
+        let tokenClient = null;
+        let accessToken = null;
+        let ws = null;
+        let audioCtx = null;
+        let processor = null;
+        let isRecording = false;
+
+        const btn = document.getElementById('btn');
+        const st = document.getElementById('status');
+        const txt = document.getElementById('recText');
+        const authBtn = document.getElementById('authBtn');
+
+        // --- Google Auth (GSI) の初期化 ---
+        function initAuthClient() {
+            try {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: CLIENT_ID,
+                    scope: SCOPES,
+                    callback: (response) => {
+                        if (response.error !== undefined) {
+                            throw (response);
+                        }
+                        accessToken = response.access_token;
+                        authBtn.style.display = 'none';
+                        st.innerText = "ログイン完了。長押しで話してください。";
+                    },
+                });
+                authBtn.classList.remove('hidden');
+                st.innerText = "ログインして開始してください";
+            } catch (err) {
+                console.error("Auth init error:", err);
+                st.innerText = "認証の初期化に失敗しました。";
+            }
+        }
+
+        authBtn.onclick = () => {
+            if (tokenClient) {
+                tokenClient.requestAccessToken({ prompt: 'consent' });
+            }
+        };
+
+        // --- Gemini Live WebSocket ---
+        async function initGemini() {
+            if (!accessToken) return;
+
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            }
+
+            const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BiDiGenerateContent?key=${API_KEY}`;
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({
+                    setup: { model: "models/gemini-2.0-flash-exp" }
+                }));
+                st.innerText = "アシスタントが準備できました。";
+            };
+
+            ws.onmessage = async (e) => {
+                const data = JSON.parse(e.data);
+
+                if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
+                    const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
+                    const binary = atob(base64);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                    const buf = await audioCtx.decodeAudioData(bytes.buffer);
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = buf;
+                    source.connect(audioCtx.destination);
+                    source.start();
+                }
+
+                if (data.toolCall) {
+                    console.log("Tool requested:", data.toolCall);
+                }
+            };
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = audioCtx.createMediaStreamSource(stream);
+            processor = audioCtx.createScriptProcessor(2048, 1, 1);
+            source.connect(processor);
+            processor.connect(audioCtx.destination);
+
+            processor.onaudioprocess = (e) => {
+                if (!isRecording || !ws || ws.readyState !== 1) return;
+                const input = e.inputBuffer.getChannelData(0);
+                const pcm = new Int16Array(input.length);
+                for (let i = 0; i < input.length; i++) {
+                    pcm[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
+                }
+                const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm.buffer)));
+                ws.send(JSON.stringify({
+                    realtimeInput: { data: { data: base64, mimeType: "audio/pcm" } }
+                }));
+            };
+        }
+
+        function start() {
+            if (!accessToken) {
+                st.innerText = "まずログインしてください。";
+                return;
+            }
+            if (!ws || ws.readyState !== 1) initGemini();
+            isRecording = true;
+            btn.classList.add('recording');
+            txt.innerText = 'LISTENING';
+        }
+
+        function stop() {
+            isRecording = false;
+            btn.classList.remove('recording');
+            txt.innerText = 'READY';
+        }
+
+        btn.onmousedown = start; btn.onmouseup = stop;
+        btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
+    </script>
+</body>
+
+</html>
