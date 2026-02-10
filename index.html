@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.2.7 - Connection Recovery</title>
+    <title>Voice Secretary v1.2.8 - Binary Support</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -15,7 +15,7 @@
         }
 
         body {
-            background: #000;
+            background: #001;
             color: #fff;
             overflow: hidden;
             font-family: 'Courier New', Courier, monospace;
@@ -75,13 +75,13 @@
             overflow-y: scroll;
             z-index: 1000;
             color: #0d0;
-            line-height: 1.1;
+            line-height: 1.2;
             word-break: break-all;
         }
 
         .trace-err {
             color: #fff;
-            background: #d00;
+            background: #d33;
             font-weight: bold;
         }
 
@@ -101,6 +101,13 @@
             color: #f0f;
             border-left: 2px solid #f0f;
             padding-left: 4px;
+            border-bottom: 1px dotted #333;
+        }
+
+        .trace-audio {
+            color: #000;
+            background: #0df;
+            font-weight: bold;
         }
 
         .trace-important {
@@ -125,14 +132,13 @@
 </head>
 
 <body class="h-screen flex flex-col items-center">
-    <!-- Mic Monitor -->
     <div id="micLevel">MIC LVL: 0%</div>
 
     <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-6 px-8 text-center"
         style="height: 50vh">
         <header>
             <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
-                    class="text-[9px] text-zinc-600 block">v1.2.7 (Connection Restored)</span></h1>
+                    class="text-[9px] text-zinc-600 block">v1.2.8 (Binary Stream Mode)</span></h1>
         </header>
         <div class="main flex-1 flex items-center justify-center">
             <div id="btn" class="relative w-36 h-36 cursor-pointer active:scale-95 transition-transform">
@@ -142,11 +148,12 @@
                 </div>
             </div>
         </div>
-        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Check Trace for Data Flow</div>
+        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Reference 143 compliance</div>
     </div>
 
+    <!-- Trace Logger -->
     <div id="fullTrace">
-        <div class="trace-sys">--- V1.2.7 RESTORATION ---</div>
+        <div class="trace-sys">--- V1.2.8 BINARY PROTOCOL DECODER ---</div>
     </div>
 
     <script>
@@ -166,19 +173,20 @@
         let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
 
         async function connectGemini() {
-            // models/ prefix is MANDATORY for raw WebSocket (Corrected from v1.2.6)
             const MODEL_NAME = "models/gemini-2.5-flash-native-audio-preview-12-2025";
-            trace(`ACTIVATE: ${MODEL_NAME}`, 'sys');
+            trace(`INIT: ${MODEL_NAME}`, 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                // Using v1alpha as per Manual for Native Audio
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
                 ws = new WebSocket(url);
 
+                // Manual 143: Binary-capable configuration
+                ws.binaryType = 'arraybuffer';
+
                 ws.onopen = () => {
-                    trace("🔥 NETWORK_LINK: OK", 'sys');
+                    trace("🔥 NETWORK_LINK: OK (Binary Mode)", 'sys');
                     const setup = {
                         setup: {
                             model: MODEL_NAME,
@@ -186,31 +194,33 @@
                         }
                     };
                     ws.send(JSON.stringify(setup));
-                    trace("SENT SETUP: " + JSON.stringify(setup), 'send');
+                    trace("SENT: JSON Setup package", 'send');
                 };
 
                 ws.onclose = (ev) => trace(`🔌 CLOSED [${ev.code}] ${ev.reason}`, 'err');
-                ws.onmessage = async (e) => {
-                    trace(`RECV_RAW: ${e.data}`, 'recv');
-                    try {
-                        const data = JSON.parse(e.data);
-                        if (data.setupComplete || data.setup_complete) trace("⭐ setupComplete (LINKED)", 'important');
+                ws.onerror = (e) => trace("❌ NETWORK_ERROR", 'err');
 
-                        // Hunt for audio in both snake and camel case
-                        const sc = data.serverContent || data.server_content;
-                        if (sc) {
-                            const turn = sc.modelTurn || sc.model_turn;
-                            if (turn?.parts?.[0]) {
-                                const part = turn.parts[0];
-                                const audio = (part.inlineData || part.inline_data)?.data;
-                                if (audio) {
-                                    trace("🔊 AUDIO DATA RECEIVED", 'important');
-                                    playRawPCM(audio);
-                                }
-                            }
+                ws.onmessage = async (e) => {
+                    if (e.data instanceof ArrayBuffer) {
+                        // Binary Frame received (Likely Raw Audio per Manual 143)
+                        const bytes = new Uint8Array(e.data);
+                        trace(`RECV_BIN: ${bytes.length} bytes [${bytes.slice(0, 4).join(',')}]`, 'audio');
+
+                        // Try parsing as JSON first in case it's a JSON frame sent as binary
+                        try {
+                            const text = new TextDecoder().decode(e.data);
+                            const json = JSON.parse(text);
+                            trace(`RECV_JSON_IN_BIN: ${text}`, 'recv');
+                            handleJSON(json);
+                        } catch (err) {
+                            // Truly binary PCM audio (24kHz as per Manual 476)
+                            playRawBinaryPCM(e.data);
                         }
-                        if (data.error) trace(`🚨 SERVER_ERROR: ${JSON.stringify(data.error)}`, 'err');
-                    } catch (err) { trace(`PARSE_ERR: ${err.message}`, 'err'); }
+                    } else {
+                        // Text Frame received (Standard JSON)
+                        trace(`RECV_TEXT: ${e.data}`, 'recv');
+                        try { handleJSON(JSON.parse(e.data)); } catch (err) { trace(`PARSE_ERR: ${err.message}`, 'err'); }
+                    }
                 };
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -243,15 +253,31 @@
             } catch (err) { trace(`BOOT_ERR: ${err.message}`, 'err'); }
         }
 
-        function playRawPCM(base64) {
+        function handleJSON(data) {
+            if (data.setupComplete || data.setup_complete) trace("⭐ setupComplete received!", 'important');
+            if (data.error) trace(`🚨 SERVER_ERROR: ${JSON.stringify(data.error)}`, 'err');
+
+            const sc = data.serverContent || data.server_content;
+            if (sc) {
+                const turn = sc.modelTurn || sc.model_turn;
+                if (turn?.parts?.[0]) {
+                    const part = turn.parts[0];
+                    if (part.inlineData || part.inline_data) {
+                        const audioB64 = (part.inlineData || part.inline_data).data;
+                        trace(`🔊 AUDIO_JSON RECEIVED (${audioB64.length} chars)`, 'important');
+                        playRawPCM_Base64(audioB64);
+                    }
+                }
+            }
+        }
+
+        function playRawBinaryPCM(buffer) {
             try {
-                const binary = atob(base64), bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                const pcm16 = new Int16Array(bytes.buffer);
+                const pcm16 = new Int16Array(buffer);
                 const floats = new Float32Array(pcm16.length);
                 for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
 
-                const audioBuf = audioCtx.createBuffer(1, floats.length, 24000);
+                const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // 24kHz stream
                 audioBuf.getChannelData(0).set(floats);
                 const source = audioCtx.createBufferSource();
                 source.buffer = audioBuf; source.connect(audioCtx.destination);
@@ -260,7 +286,13 @@
                 if (nextStartTime < now) nextStartTime = now;
                 source.start(nextStartTime);
                 nextStartTime += audioBuf.duration;
-            } catch (e) { trace(`PLAY_ERR: ${e.message}`, 'err'); }
+            } catch (e) { trace(`BIN_PLAY_ERR: ${e.message}`, 'err'); }
+        }
+
+        function playRawPCM_Base64(base64) {
+            const binary = atob(base64), bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            playRawBinaryPCM(bytes.buffer);
         }
 
         async function start() {
@@ -284,7 +316,7 @@
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.2.7 Restoration Ready.");
+        trace("v1.2.8 Hybrid Protocol Loaded.");
     </script>
 </body>
 
