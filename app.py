@@ -211,18 +211,21 @@ async def websocket_endpoint(websocket: WebSocket):
         return
     
     # Geminiに教えるツール一覧
-    config = {"tools": [
-        {"google_search": {}},
-        {"function_declarations": [
-            {"name": "search_drive_files", "description": "Google Drive内のドキュメントやファイルを検索します。", "parameters": {"type": "OBJECT", "properties": {"query": {"type": "STRING"}}, "required": ["query"]}},
-            {"name": "send_gmail_message", "description": "メールを送信します。", "parameters": {"type": "OBJECT", "properties": {"to": {"type": "STRING", "description": "宛先アドレス"}, "subject": {"type": "STRING", "description": "件名"}, "body": {"type": "STRING", "description": "本文"}}, "required": ["to", "subject", "body"]}},
-            {"name": "list_recent_emails", "description": "最近のメール一覧を取得します。", "parameters": {"type": "OBJECT", "properties": {"max_results": {"type": "INTEGER"}}}},
-            {"name": "list_calendar_events", "description": "カレンダーの予定を確認します。", "parameters": {"type": "OBJECT", "properties": {"days": {"type": "INTEGER"}}}},
-            {"name": "add_calendar_event", "description": "カレンダーに予定を登録します。時間は ISO 形式です。", "parameters": {"type": "OBJECT", "properties": {"summary": {"type": "STRING"}, "start_iso": {"type": "STRING"}, "end_iso": {"type": "STRING"}}, "required": ["summary", "start_iso", "end_iso"]}},
-            {"name": "list_tasks", "description": "ToDoリストを確認します。", "parameters": {"type": "OBJECT", "properties": {}}},
-            {"name": "add_task", "description": "ToDoリストにタスクを追加します。", "parameters": {"type": "OBJECT", "properties": {"title": {"type": "STRING"}}, "required": ["title"]}},
-        ]}
-    ]}
+    config = {
+        "system_instruction": "あなたは日本語で話す秘書です。ユーザーがどんな言語で話しても、必ず日本語で応答してください。英語は絶対に使わないでください。ツールの結果もすべて日本語で説明してください。自然で丁寧な日本語でお願いします。",
+        "tools": [
+            {"google_search": {}},
+            {"function_declarations": [
+                {"name": "search_drive_files", "description": "Google Drive内のドキュメントやファイルを検索します。", "parameters": {"type": "OBJECT", "properties": {"query": {"type": "STRING"}}, "required": ["query"]}},
+                {"name": "send_gmail_message", "description": "メールを送信します。", "parameters": {"type": "OBJECT", "properties": {"to": {"type": "STRING", "description": "宛先アドレス"}, "subject": {"type": "STRING", "description": "件名"}, "body": {"type": "STRING", "description": "本文"}}, "required": ["to", "subject", "body"]}},
+                {"name": "list_recent_emails", "description": "最近のメール一覧を取得します。", "parameters": {"type": "OBJECT", "properties": {"max_results": {"type": "INTEGER"}}}},
+                {"name": "list_calendar_events", "description": "カレンダーの予定を確認します。", "parameters": {"type": "OBJECT", "properties": {"days": {"type": "INTEGER"}}}},
+                {"name": "add_calendar_event", "description": "カレンダーに予定を登録します。時間は ISO 形式です。", "parameters": {"type": "OBJECT", "properties": {"summary": {"type": "STRING"}, "start_iso": {"type": "STRING"}, "end_iso": {"type": "STRING"}}, "required": ["summary", "start_iso", "end_iso"]}},
+                {"name": "list_tasks", "description": "ToDoリストを確認します。", "parameters": {"type": "OBJECT", "properties": {}}},
+                {"name": "add_task", "description": "ToDoリストにタスクを追加します。", "parameters": {"type": "OBJECT", "properties": {"title": {"type": "STRING"}}, "required": ["title"]}},
+            ]}
+        ]
+    }
 
     try:
         async with client.models.live.connect(model=model_id, config=config) as session:
