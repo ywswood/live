@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.1.5 - Gemini 2.5 Live</title>
+    <title>Voice Secretary v1.1.6 - Gemini 2.5 Live</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -108,7 +108,7 @@
         style="height: 60vh">
         <header>
             <h1 class="text-lg font-bold italic tracking-tighter uppercase">Gemini 2.5 Live <span
-                    class="text-[9px] text-zinc-600 block">v1.1.5 (Manual Model Fix)</span></h1>
+                    class="text-[9px] text-zinc-600 block">v1.1.6 (Model 12-2025)</span></h1>
         </header>
         <div class="main flex-1 flex items-center justify-center">
             <div id="btn" class="relative w-40 h-40 cursor-pointer active:scale-95 transition-transform">
@@ -125,7 +125,7 @@
 
     <!-- Trace Logger -->
     <div id="fullTrace">
-        <div class="trace-sys">--- START TRACE (V1.1.5 MANUAL MODEL NAME) ---</div>
+        <div class="trace-sys">--- START TRACE (V1.1.6 MODEL 12-2025) ---</div>
     </div>
 
     <script>
@@ -147,12 +147,13 @@
         let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
 
         async function connectGemini() {
-            const MODEL_NAME = "models/gemini-live-2.5-flash-preview-native-audio-09-2025";
+            const MODEL_NAME = "models/gemini-live-2.5-flash-preview-native-audio-12-2025";
             trace(`Connecting with: ${MODEL_NAME}`, 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
+                // WebSocket endpoint for Gemini Multimodal Live API
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
                 ws = new WebSocket(url);
 
@@ -184,7 +185,7 @@
                         const floats = new Float32Array(pcm16.length);
                         for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
 
-                        const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // Output 24kHz
+                        const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // Output 24kHz raw PCM
                         audioBuf.getChannelData(0).set(floats);
                         const source = audioCtx.createBufferSource();
                         source.buffer = audioBuf; source.connect(audioCtx.destination);
@@ -242,7 +243,7 @@
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.1.5 Manual Model Name Loader.");
+        trace("v1.1.6 Model-12-2025 Loader.");
     </script>
 </body>
 
