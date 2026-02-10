@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.1.9 - Native Audio Faithful</title>
+    <title>Voice Secretary v1.2.0 - Exhaustive Trace</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -67,15 +67,15 @@
             bottom: 0;
             left: 0;
             width: 100%;
-            height: 40vh;
+            height: 50vh;
             background: rgba(0, 0, 0, 0.95);
             border-top: 1px solid #444;
-            font-size: 9px;
+            font-size: 8px;
             padding: 10px;
             overflow-y: scroll;
             z-index: 1000;
             color: #0f0;
-            line-height: 1.2;
+            line-height: 1.1;
         }
 
         .trace-err {
@@ -85,6 +85,8 @@
 
         .trace-sys {
             color: #aaa;
+            border-left: 2px solid #aaa;
+            padding-left: 4px;
         }
 
         .trace-send {
@@ -93,38 +95,43 @@
 
         .trace-recv {
             color: #f0f;
+            border-bottom: 1px solid #333;
         }
 
         .trace-conn {
             color: #fff;
             background: #00f;
         }
+
+        .trace-important {
+            color: #ff0;
+            font-weight: bold;
+            background: #330;
+        }
     </style>
 </head>
 
 <body class="h-screen flex flex-col items-center">
-    <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-10 px-8 text-center"
-        style="height: 60vh">
+    <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-6 px-8 text-center"
+        style="height: 50vh">
         <header>
-            <h1 class="text-sm font-bold italic tracking-tighter uppercase">Gemini 2.5 Native Audio <span
-                    class="text-[9px] text-zinc-600 block">v1.1.9 (Ref: 12-2025 v1alpha)</span></h1>
+            <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
+                    class="text-[9px] text-zinc-600 block">v1.2.0 (Exhaustive Debug)</span></h1>
         </header>
         <div class="main flex-1 flex items-center justify-center">
-            <div id="btn" class="relative w-40 h-40 cursor-pointer active:scale-95 transition-transform">
+            <div id="btn" class="relative w-36 h-36 cursor-pointer active:scale-95 transition-transform">
                 <div class="ring"></div>
                 <div class="fill absolute inset-3 bg-zinc-950 rounded-full flex flex-col items-center justify-center">
                     <div id="recText" class="text-[10px] font-bold text-zinc-600 tracking-widest uppercase">READY</div>
                 </div>
             </div>
         </div>
-        <div class="w-full pb-4">
-            <div id="status" class="text-zinc-500 text-[9px] mb-2 font-mono uppercase">Reference-Faithful Mode.</div>
-        </div>
+        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Inspect Trace Below</div>
     </div>
 
     <!-- Trace Logger -->
     <div id="fullTrace">
-        <div class="trace-sys">--- START FAITHFUL TRACE (V1.1.9) ---</div>
+        <div class="trace-sys">--- EXHAUSTIVE DEBUG START (v1.2.0) ---</div>
     </div>
 
     <script>
@@ -137,9 +144,8 @@
             div.className = type ? 'trace-' + type : '';
             div.innerText = `[${time}] ${msg}`;
             traceEl.appendChild(div);
-            if (traceEl.childNodes.length > 500) traceEl.removeChild(traceEl.firstChild);
+            if (traceEl.childNodes.length > 800) traceEl.removeChild(traceEl.firstChild);
             traceEl.scrollTop = traceEl.scrollHeight;
-            st.innerText = msg;
         }
         traceEl.onclick = () => traceEl.innerHTML = '';
         window.onerror = (m, u, l) => trace(`JS_ERR: ${m} at L${l}`, 'err');
@@ -147,61 +153,64 @@
         let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
 
         async function connectGemini() {
-            // Reference: gemini-2.5-flash-native-audio-preview-12-2025
             const MODEL_NAME = "models/gemini-2.5-flash-native-audio-preview-12-2025";
-            trace(`Connecting with Reference Model: ${MODEL_NAME}`, 'sys');
+            trace(`INIT: ${MODEL_NAME}`, 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                // Using v1alpha as suggested by reference for native audio features (Interactions, affective, etc.)
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    trace("🔥 NETWORK LINK ESTABLISHED (v1alpha)", 'conn');
+                    trace("🔥 WS OPEN (v1alpha)", 'conn');
                     const setup = {
                         setup: {
                             model: MODEL_NAME,
-                            generation_config: { response_modalities: ["AUDIO"] } // Reference uses "AUDIO"
+                            generation_config: { response_modalities: ["AUDIO"] }
                         }
                     };
                     ws.send(JSON.stringify(setup));
-                    trace("SENT: Setup message (Faithful)", 'send');
+                    trace("SENT: Setup JSON", 'send');
                 };
 
-                ws.onclose = (ev) => trace(`🔌 WS CLOSED. Code:${ev.code} Reason:${ev.reason || 'None'}`, 'err');
-                ws.onerror = (err) => trace("❌ WS SOCKET ERROR", 'err');
+                ws.onclose = (ev) => trace(`🔌 WS CLOSED [${ev.code}] ${ev.reason || 'No Reason'}`, 'err');
+                ws.onerror = (err) => trace("❌ WS ERROR", 'err');
 
                 ws.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
-                    if (data.setupComplete) trace("⭐ GEMINI 2.5 NATIVE READY!", 'conn');
+                    // 全受信メッセージのトップレベルキーを解析
+                    const topKeys = Object.keys(data);
+                    trace(`RECV JSON: [${topKeys.join(', ')}]`, 'recv');
 
-                    if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
-                        const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
-                        const binary = atob(base64), bytes = new Uint8Array(binary.length);
-                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                    if (data.setupComplete) trace("⭐ SETUP COMPLETE. Model is waiting.", 'important');
 
-                        const pcm16 = new Int16Array(bytes.buffer);
-                        const floats = new Float32Array(pcm16.length);
-                        for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
+                    if (data.serverContent) {
+                        const sc = data.serverContent;
+                        const scKeys = Object.keys(sc);
+                        trace(`└ ServerContent: [${scKeys.join(', ')}]`, 'recv');
 
-                        const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // Output fixed at 24kHz
-                        audioBuf.getChannelData(0).set(floats);
-                        const source = audioCtx.createBufferSource();
-                        source.buffer = audioBuf; source.connect(audioCtx.destination);
+                        if (sc.interrupted) trace(" └ ⚠️ INTERRUPTED", 'err');
+                        if (sc.turnComplete) trace(" └ ✅ TURN COMPLETE", 'important');
 
-                        const now = audioCtx.currentTime;
-                        if (nextStartTime < now) nextStartTime = now;
-                        source.start(nextStartTime);
-                        nextStartTime += audioBuf.duration;
-                        // Frequency trace to verify data flow
-                        if (pcm16.length > 0) trace(`RECV: Audio chunk (${pcm16.length} samples)`, 'recv');
+                        if (sc.modelTurn) {
+                            trace(` └ ModelTurn found. Parts: ${sc.modelTurn.parts?.length}`, 'recv');
+                            const part = sc.modelTurn.parts?.[0];
+                            if (part?.inlineData) {
+                                trace(`  └ 🔊 AUDIO DATA RECEIVED (${part.inlineData.data.length} chars)`, 'important');
+                                playRawPCM(part.inlineData.data);
+                            } else if (part?.text) {
+                                trace(`  └ 💬 TEXT PART: ${part.text}`, 'conn');
+                            }
+                        }
                     }
+
+                    if (data.toolCall) trace(`└ 🛠️ TOOL CALL: ${data.toolCall.functionCalls?.length} functions`, 'conn');
+                    if (data.usageMetadata) trace(`└ 📊 USAGE: Total ${data.usageMetadata.totalTokenCount} tokens`, 'sys');
                 };
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                trace("🎤 Microphone access granted.", 'sys');
+                trace("🎤 MIC ACCESS OK", 'sys');
                 const source = audioCtx.createMediaStreamSource(stream);
                 processor = audioCtx.createScriptProcessor(2048, 1, 1);
                 source.connect(processor); processor.connect(audioCtx.destination);
@@ -216,36 +225,56 @@
                         realtime_input: {
                             media_chunks: [{
                                 data: btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer))),
-                                mime_type: "audio/pcm;rate=16000" // Reference: MIME should specify rate
+                                mime_type: "audio/pcm;rate=16000"
                             }]
                         }
                     };
                     ws.send(JSON.stringify(packet));
                     pcmSentCount++;
-                    if (pcmSentCount % 40 === 0) trace(`SEND: Voice packets (${pcmSentCount})`, 'send');
+                    if (pcmSentCount % 100 === 0) trace(`STREAMING: Sent ${pcmSentCount} pkts`, 'send');
                 };
 
             } catch (err) { trace(`INIT_ERR: ${err.message}`, 'err'); }
+        }
+
+        function playRawPCM(base64) {
+            try {
+                const binary = atob(base64), bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                const pcm16 = new Int16Array(bytes.buffer);
+                const floats = new Float32Array(pcm16.length);
+                for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
+
+                const audioBuf = audioCtx.createBuffer(1, floats.length, 24000);
+                audioBuf.getChannelData(0).set(floats);
+                const source = audioCtx.createBufferSource();
+                source.buffer = audioBuf; source.connect(audioCtx.destination);
+
+                const now = audioCtx.currentTime;
+                if (nextStartTime < now) nextStartTime = now;
+                source.start(nextStartTime);
+                nextStartTime += audioBuf.duration;
+            } catch (e) { trace(`PLAYBACK_ERR: ${e.message}`, 'err'); }
         }
 
         async function start() {
             if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
             if (!ws || ws.readyState !== 1) await connectGemini();
             pcmSentCount = 0; isRecording = true;
-            btn.classList.add('recording'); txt.innerText = 'LISTENING';
-            trace("--- RECORDING START ---", 'sys');
+            btn.classList.add('recording'); txt.innerText = 'MIC ON';
+            trace("--- RECORDING SESSION START ---", 'sys');
         }
 
         function stop() {
             isRecording = false;
             btn.classList.remove('recording'); txt.innerText = 'READY';
-            trace(`--- RECORDING STOP --- (Total: ${pcmSentCount} pkts)`, 'sys');
+            trace(`--- MIC OFF --- (${pcmSentCount} sent)`, 'sys');
         }
 
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.1.9 Reference-Faithful Loaded.");
+        trace("v1.2.0 Exhaustive Debug Ready.");
     </script>
 </body>
 
