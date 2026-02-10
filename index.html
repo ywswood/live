@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.1.7 - Gemini 3 Live</title>
+    <title>Voice Secretary v1.1.9 - Native Audio Faithful</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -103,12 +103,11 @@
 </head>
 
 <body class="h-screen flex flex-col items-center">
-    <!-- UI Area -->
     <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-10 px-8 text-center"
         style="height: 60vh">
         <header>
-            <h1 class="text-lg font-bold italic tracking-tighter uppercase">Gemini 3 Flash <span
-                    class="text-[9px] text-zinc-600 block">v1.1.7 (gemini-3-flash-preview)</span></h1>
+            <h1 class="text-sm font-bold italic tracking-tighter uppercase">Gemini 2.5 Native Audio <span
+                    class="text-[9px] text-zinc-600 block">v1.1.9 (Ref: 12-2025 v1alpha)</span></h1>
         </header>
         <div class="main flex-1 flex items-center justify-center">
             <div id="btn" class="relative w-40 h-40 cursor-pointer active:scale-95 transition-transform">
@@ -119,13 +118,13 @@
             </div>
         </div>
         <div class="w-full pb-4">
-            <div id="status" class="text-zinc-500 text-[9px] mb-2 font-mono uppercase">Waiting for Press...</div>
+            <div id="status" class="text-zinc-500 text-[9px] mb-2 font-mono uppercase">Reference-Faithful Mode.</div>
         </div>
     </div>
 
     <!-- Trace Logger -->
     <div id="fullTrace">
-        <div class="trace-sys">--- START TRACE (V1.1.7 GEMINI 3 FLASH) ---</div>
+        <div class="trace-sys">--- START FAITHFUL TRACE (V1.1.9) ---</div>
     </div>
 
     <script>
@@ -143,30 +142,32 @@
             st.innerText = msg;
         }
         traceEl.onclick = () => traceEl.innerHTML = '';
+        window.onerror = (m, u, l) => trace(`JS_ERR: ${m} at L${l}`, 'err');
 
         let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
 
         async function connectGemini() {
-            const MODEL_NAME = "models/gemini-3-flash-preview";
-            trace(`Connecting with: ${MODEL_NAME}`, 'sys');
+            // Reference: gemini-2.5-flash-native-audio-preview-12-2025
+            const MODEL_NAME = "models/gemini-2.5-flash-native-audio-preview-12-2025";
+            trace(`Connecting with Reference Model: ${MODEL_NAME}`, 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                // WebSocket endpoint for Gemini Multimodal Live API
-                const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
+                // Using v1alpha as suggested by reference for native audio features (Interactions, affective, etc.)
+                const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    trace("🔥 NETWORK LINK ESTABLISHED", 'conn');
+                    trace("🔥 NETWORK LINK ESTABLISHED (v1alpha)", 'conn');
                     const setup = {
                         setup: {
                             model: MODEL_NAME,
-                            generation_config: { response_modalities: ["audio"] }
+                            generation_config: { response_modalities: ["AUDIO"] } // Reference uses "AUDIO"
                         }
                     };
                     ws.send(JSON.stringify(setup));
-                    trace("SENT: Setup JSON Configuration", 'send');
+                    trace("SENT: Setup message (Faithful)", 'send');
                 };
 
                 ws.onclose = (ev) => trace(`🔌 WS CLOSED. Code:${ev.code} Reason:${ev.reason || 'None'}`, 'err');
@@ -174,7 +175,7 @@
 
                 ws.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
-                    if (data.setupComplete) trace("⭐ GEMINI 3 READY!", 'conn');
+                    if (data.setupComplete) trace("⭐ GEMINI 2.5 NATIVE READY!", 'conn');
 
                     if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
                         const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
@@ -185,7 +186,7 @@
                         const floats = new Float32Array(pcm16.length);
                         for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
 
-                        const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // Output 24kHz raw PCM
+                        const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // Output fixed at 24kHz
                         audioBuf.getChannelData(0).set(floats);
                         const source = audioCtx.createBufferSource();
                         source.buffer = audioBuf; source.connect(audioCtx.destination);
@@ -194,7 +195,8 @@
                         if (nextStartTime < now) nextStartTime = now;
                         source.start(nextStartTime);
                         nextStartTime += audioBuf.duration;
-                        trace(`RECV: Audio Data (${pcm16.length} samples)`, 'recv');
+                        // Frequency trace to verify data flow
+                        if (pcm16.length > 0) trace(`RECV: Audio chunk (${pcm16.length} samples)`, 'recv');
                     }
                 };
 
@@ -214,13 +216,13 @@
                         realtime_input: {
                             media_chunks: [{
                                 data: btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer))),
-                                mime_type: "audio/pcm"
+                                mime_type: "audio/pcm;rate=16000" // Reference: MIME should specify rate
                             }]
                         }
                     };
                     ws.send(JSON.stringify(packet));
                     pcmSentCount++;
-                    if (pcmSentCount % 40 === 0) trace(`SEND: Voice streaming (${pcmSentCount} pkts)`, 'send');
+                    if (pcmSentCount % 40 === 0) trace(`SEND: Voice packets (${pcmSentCount})`, 'send');
                 };
 
             } catch (err) { trace(`INIT_ERR: ${err.message}`, 'err'); }
@@ -237,13 +239,13 @@
         function stop() {
             isRecording = false;
             btn.classList.remove('recording'); txt.innerText = 'READY';
-            trace(`--- RECORDING STOP --- (${pcmSentCount} sent)`, 'sys');
+            trace(`--- RECORDING STOP --- (Total: ${pcmSentCount} pkts)`, 'sys');
         }
 
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.1.7 Gemini-3 Loader.");
+        trace("v1.1.9 Reference-Faithful Loaded.");
     </script>
 </body>
 
