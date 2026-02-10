@@ -3,8 +3,9 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Voice Secretary - v1.0.5</title>
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
+    <title>Voice Secretary - v1.0.6</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://accounts.google.com/gsi/client" onload="initAuthClient()" async defer></script>
     <script src="https://apis.google.com/js/api.js"></script>
@@ -121,26 +122,32 @@
 
         async function initGemini() {
             if (!accessToken) return;
-            log("Gemini 2.5 接続中...");
+            log("Gemini 2.5 接続試行中...");
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
+                // Multimodal Live API エンドポイント
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BiDiGenerateContent?key=${API_KEY}`;
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    log("✅ WebSocket接続成功");
-                    // モデル名を gemini-2.5-flash に設定
-                    ws.send(JSON.stringify({ setup: { model: "models/gemini-2.5-flash" } }));
+                    log("✅ ネットワーク接続成功。準備中...");
+                    ws.send(JSON.stringify({
+                        setup: { model: "models/gemini-2.5-flash" }
+                    }));
                 };
+
                 ws.onclose = (ev) => log(`🔌 接続切断 (Code: ${ev.code})`, true);
-                ws.onerror = (err) => log("❌ 通信エラー", true);
+                ws.onerror = (err) => log("❌ 通信エラー発生", true);
 
                 ws.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
-                    if (data.setupComplete) log("✅ アシスタント準備完了");
 
+                    // 準備完了メッセージ
+                    if (data.setupComplete) log("✅ アシスタント準備完了。どうぞ！");
+
+                    // 音声データの再生
                     if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
                         const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
                         const binary = atob(base64), bytes = new Uint8Array(binary.length);
@@ -162,10 +169,14 @@
                     const pcm = new Int16Array(input.length);
                     for (let i = 0; i < input.length; i++) pcm[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
 
-                    // Native Audio Dialog プロトコル (camelCase)
-                    const base64Data = btoa(String.fromCharCode(...new Uint8Array(pcm.buffer)));
+                    // リアルタイム音声送信 (Native API Specifications: snake_case)
                     ws.send(JSON.stringify({
-                        realtimeInput: { data: { data: base64Data, mimeType: "audio/pcm" } }
+                        realtime_input: {
+                            media_chunks: [{
+                                data: btoa(String.fromCharCode(...new Uint8Array(pcm.buffer))),
+                                mime_type: "audio/pcm"
+                            }]
+                        }
                     }));
                 };
             } catch (err) { log("Init Error: " + err.message, true); }
