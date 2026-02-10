@@ -3,12 +3,10 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Voice Secretary v1.1.2 - Connection Focus</title>
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
+    <title>Voice Secretary v1.1.3 - Direct Key Auth</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- GSI onloadを明示的にハンドル -->
-    <script src="https://accounts.google.com/gsi/client" onload="initAuthClient()" async defer></script>
-    <script src="https://apis.google.com/js/api.js"></script>
     <style>
         :root {
             --cyan: #00f2ea;
@@ -105,12 +103,11 @@
 </head>
 
 <body class="h-screen flex flex-col items-center">
-    <!-- UI Area -->
     <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-10 px-8 text-center"
         style="height: 60vh">
         <header>
             <h1 class="text-xl font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
-                    class="text-[10px] text-zinc-600 block">v1.1.2 Connectivity Check</span></h1>
+                    class="text-[10px] text-zinc-600 block">v1.1.3 Direct connection</span></h1>
         </header>
 
         <div class="main flex-1 flex items-center justify-center">
@@ -123,25 +120,19 @@
         </div>
 
         <div class="w-full pb-4">
-            <div id="status" class="text-zinc-500 text-[10px] mb-2 font-mono">Logger ready.</div>
-            <div id="authBtn"
-                class="bg-white text-black px-8 py-3 rounded-full font-bold text-xs cursor-pointer inline-block mx-auto transition-all active:scale-90">
-                Google LOGIN (Required)</div>
+            <div id="status" class="text-zinc-500 text-[10px] mb-2 font-mono uppercase tracking-widest">Standalone Mode
+                Enabled.</div>
         </div>
     </div>
 
     <!-- Trace Logger -->
     <div id="fullTrace">
-        <div class="trace-sys">--- START TRACE (Tap to Clear) ---</div>
+        <div class="trace-sys">--- START TRACE (V1.1.3 API-KEY ONLY) ---</div>
     </div>
 
     <script>
         const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
-        const CLIENT_ID = "218926241376-m5rqri5is7nsaur63vrpqjkchmai378p.apps.googleusercontent.com";
-        const SCOPES = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks";
-
-        const traceEl = document.getElementById('fullTrace');
-        const st = document.getElementById('status'), txt = document.getElementById('recText'), authBtn = document.getElementById('authBtn'), btn = document.getElementById('btn');
+        const traceEl = document.getElementById('fullTrace'), st = document.getElementById('status'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
 
         function trace(msg, type = '') {
             const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
@@ -149,57 +140,25 @@
             div.className = type ? 'trace-' + type : '';
             div.innerText = `[${time}] ${msg}`;
             traceEl.appendChild(div);
-            if (traceEl.childNodes.length > 500) traceEl.removeChild(traceEl.firstChild);
+            if (traceEl.childNodes.length > 300) traceEl.removeChild(traceEl.firstChild);
             traceEl.scrollTop = traceEl.scrollHeight;
             st.innerText = msg;
         }
+        traceEl.onclick = () => traceEl.innerHTML = '';
 
-        traceEl.onclick = () => traceEl.innerHTML = '<div class="trace-sys">--- CLEARED ---</div>';
-        window.onerror = (m, u, l) => trace(`JS_ERR: ${m} at L${l}`, 'err');
+        let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
 
-        let tokenClient, accessToken, ws, audioCtx, processor, isRecording = false;
-        let nextStartTime = 0;
-        let pcmSentCount = 0;
-
-        // 1. Auth Initialization
-        function initAuthClient() {
-            try {
-                trace("Initializing Google Identity Service...", 'sys');
-                tokenClient = google.accounts.oauth2.initTokenClient({
-                    client_id: CLIENT_ID, scope: SCOPES,
-                    callback: (res) => {
-                        if (res.error) { trace("Login Error: " + res.error, 'err'); return; }
-                        accessToken = res.access_token;
-                        authBtn.style.opacity = "0.5";
-                        authBtn.innerText = "Logged In";
-                        trace("✅ AUTH SUCCESS: Token Acquired.", 'sys');
-                    },
-                });
-                trace("Auth Client Ready.");
-            } catch (err) { trace("Auth Init Err: " + err.message, 'err'); }
-        }
-
-        authBtn.onclick = () => {
-            trace("Auth Popup Requesting...");
-            if (tokenClient) tokenClient.requestAccessToken({ prompt: 'consent' });
-            else trace("Auth Client NOT READY", 'err');
-        };
-
-        // 2. Gemini Connection
         async function connectGemini() {
-            if (!accessToken) { trace("LOGIN FIRST", 'err'); return; }
-
-            trace("Setting up WebSocket & AudioContext...", 'sys');
+            trace("Establishing Direct WebSocket Connection...", 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
-                trace(`Connecting: ${url.split('?')[0]}`, 'sys');
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    trace("🎉 WebSocket CONNECTED!", 'conn');
+                    trace("🔥 API CONNECTED SUCCESSFULLY!", 'conn');
                     const setup = {
                         setup: {
                             model: "models/gemini-2.5-flash",
@@ -207,17 +166,16 @@
                         }
                     };
                     ws.send(JSON.stringify(setup));
-                    trace("SENT: Setup JSON", 'send');
+                    trace("SENT: Setup JSON Configuration", 'send');
                 };
 
-                ws.onclose = (ev) => trace(`🔌 DISCONNECTED Code:${ev.code} Reason:${ev.reason || 'None'}`, 'err');
-                ws.onerror = (err) => trace("❌ WebSocket ERROR (Check API Key restriction)", 'err');
+                ws.onclose = (ev) => trace(`🔌 WS CLOSED. Code:${ev.code} Reason:${ev.reason || 'None'}`, 'err');
+                ws.onerror = (err) => trace("❌ WS SOCKET ERROR", 'err');
 
                 ws.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
-                    trace(`RECV: ${e.data.substring(0, 50)}...`, 'recv');
 
-                    if (data.setupComplete) trace("✅ GEMINI READY: Setup Finished", 'conn');
+                    if (data.setupComplete) trace("⭐ GEMINI READY: Waiting for your voice...", 'conn');
 
                     if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
                         const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
@@ -237,12 +195,12 @@
                         if (nextStartTime < now) nextStartTime = now;
                         source.start(nextStartTime);
                         nextStartTime += audioBuf.duration;
-                        trace(`PLAYING: ${pcm16.length} samples`, 'recv');
+                        trace(`RECV: Audio chunk (${pcm16.length} samples)`, 'recv');
                     }
                 };
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                trace("✅ Mic Stream Access OK.", 'sys');
+                trace("🎤 Microphone access granted.", 'sys');
                 const source = audioCtx.createMediaStreamSource(stream);
                 processor = audioCtx.createScriptProcessor(2048, 1, 1);
                 source.connect(processor); processor.connect(audioCtx.destination);
@@ -263,22 +221,17 @@
                     };
                     ws.send(JSON.stringify(packet));
                     pcmSentCount++;
-                    if (pcmSentCount % 30 === 0) trace(`STREAMING: ${pcmSentCount} packets sent`, 'send');
+                    if (pcmSentCount % 30 === 0) trace(`SEND: Voice Stream... (${pcmSentCount} packets)`, 'send');
                 };
 
             } catch (err) { trace(`INIT_ERR: ${err.message}`, 'err'); }
         }
 
-        // 3. Button Actions
         async function start() {
-            if (!accessToken) { trace("⚠️ LOGIN REQUIRED FIRST", 'err'); return; }
             if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
-
             if (!ws || ws.readyState !== 1) {
-                trace("No active connection. Reconnecting...");
                 await connectGemini();
             }
-
             pcmSentCount = 0;
             isRecording = true;
             btn.classList.add('recording'); txt.innerText = 'LISTENING';
@@ -288,13 +241,13 @@
         function stop() {
             isRecording = false;
             btn.classList.remove('recording'); txt.innerText = 'READY';
-            trace(`--- RECORDING STOP --- (${pcmSentCount} total sent)`, 'sys');
+            trace(`--- RECORDING STOP --- (${pcmSentCount} sent)`, 'sys');
         }
 
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.1.2 Controller Loaded.");
+        trace("v1.1.3 API-Key Mode Loader.");
     </script>
 </body>
 
