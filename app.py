@@ -10,13 +10,13 @@ from google.genai import types
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from email.mime.text import MIMEText
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
 # ================================================
 # 1. 環境設定
 # ================================================
-load_dotenv()
+#load_dotenv()
 
 # 固定キーを優先
 FIXED_API_KEY = os.getenv("GEMINI_API_KEY")
