@@ -5,9 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary - v1.0.6</title>
+    <title>Voice Secretary v1.1.1 - Gemini 2.5 Native</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://accounts.google.com/gsi/client" onload="initAuthClient()" async defer></script>
+    <script src="https://accounts.google.com/gsi/client" onload="trace('GSI JS Loaded')" async defer></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <style>
         :root {
@@ -20,7 +20,7 @@
             background: #000;
             color: #fff;
             overflow: hidden;
-            -webkit-tap-highlight-color: transparent;
+            font-family: 'Courier New', Courier, monospace;
         }
 
         .ring {
@@ -63,98 +63,170 @@
                 transform: scale(1.2);
             }
         }
+
+        #fullTrace {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 45vh;
+            background: rgba(0, 0, 0, 0.95);
+            border-top: 1px solid #444;
+            font-size: 9px;
+            padding: 10px;
+            overflow-y: scroll;
+            z-index: 1000;
+            color: #0f0;
+            line-height: 1.2;
+        }
+
+        .trace-err {
+            color: #f44;
+            font-weight: bold;
+        }
+
+        .trace-sys {
+            color: #aaa;
+        }
+
+        .trace-send {
+            color: #0af;
+        }
+
+        .trace-recv {
+            color: #f0f;
+        }
     </style>
 </head>
 
-<body class="h-screen flex flex-col items-center justify-center">
-    <div class="container max-w-md h-full flex flex-col items-center justify-between py-16 px-8 text-center">
+<body class="h-screen flex flex-col items-center">
+    <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-10 px-8 text-center"
+        style="height: 55vh">
         <header>
-            <h1 class="text-4xl font-black italic"><span style="color:var(--cyan)">VOICE</span><br>SECRETARY.</h1>
+            <h1 class="text-xl font-bold italic tracking-tighter">GEMINI 2.5 NATIVE <span
+                    class="text-xs text-zinc-600 block">v1.1.1 RAW AUDIO</span></h1>
         </header>
+
         <div class="main flex-1 flex items-center justify-center">
-            <div id="btn" class="relative w-56 h-56 cursor-pointer active:scale-95 transition-transform">
+            <div id="btn" class="relative w-40 h-40 cursor-pointer active:scale-95 transition-transform">
                 <div class="ring"></div>
-                <div
-                    class="fill absolute inset-4 bg-zinc-900 rounded-full flex flex-col items-center justify-center border border-zinc-800 shadow-inner">
-                    <div class="text-6xl mb-2">🎙️</div>
-                    <div id="recText" class="text-[10px] font-bold text-zinc-500 tracking-widest">READY</div>
+                <div class="fill absolute inset-3 bg-zinc-950 rounded-full flex flex-col items-center justify-center">
+                    <div id="recText" class="text-[10px] font-bold text-zinc-600 tracking-widest uppercase">STANDBY
+                    </div>
                 </div>
             </div>
         </div>
-        <div id="statusBox" class="status-box w-full pb-8">
-            <div id="status" class="text-zinc-400 text-sm mb-4 cursor-pointer">初期化中...</div>
+
+        <div class="w-full pb-4">
+            <div id="status" class="text-zinc-500 text-[10px] mb-2 font-mono">Trace initialized.</div>
             <div id="authBtn"
-                class="bg-white text-black px-8 py-3 rounded-full font-bold text-sm cursor-pointer hover:bg-zinc-200 hidden mx-auto">
-                Google ログイン</div>
+                class="bg-white text-black px-6 py-2 rounded-full font-bold text-[10px] cursor-pointer hidden mx-auto">
+                GOOGLE LOGIN</div>
         </div>
     </div>
+
+    <!-- Trace Logger -->
+    <div id="fullTrace"></div>
 
     <script>
         const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
         const CLIENT_ID = "218926241376-m5rqri5is7nsaur63vrpqjkchmai378p.apps.googleusercontent.com";
         const SCOPES = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks";
 
-        let tokenClient, accessToken, ws, audioCtx, processor, isRecording = false;
-        const btn = document.getElementById('btn'), st = document.getElementById('status'), txt = document.getElementById('recText'), authBtn = document.getElementById('authBtn');
+        const traceEl = document.getElementById('fullTrace');
+        const st = document.getElementById('status'), txt = document.getElementById('recText'), authBtn = document.getElementById('authBtn'), btn = document.getElementById('btn');
 
-        function log(msg, isError = false) {
-            console.log(msg); st.innerText = msg;
-            st.style.color = isError ? "#ff4d4d" : "#999";
+        function trace(msg, type = '') {
+            const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+            const div = document.createElement('div');
+            div.className = type ? 'trace-' + type : '';
+            div.innerText = `[${time}] ${msg}`;
+            traceEl.appendChild(div);
+            if (traceEl.childNodes.length > 300) traceEl.removeChild(traceEl.firstChild);
+            traceEl.scrollTop = traceEl.scrollHeight;
+            st.innerText = msg;
         }
+        traceEl.onclick = () => traceEl.innerHTML = '';
+        window.onerror = (m, u, l) => trace(`JS_ERR: ${m} (L${l})`, 'err');
+
+        let tokenClient, accessToken, ws, audioCtx, processor, isRecording = false;
 
         function initAuthClient() {
             try {
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: CLIENT_ID, scope: SCOPES,
                     callback: (res) => {
-                        if (res.error) { log("Login Err: " + res.error, true); return; }
                         accessToken = res.access_token;
                         authBtn.style.display = 'none';
-                        log("ログイン成功。🎙️長押しで開始");
+                        trace("✅ AUTH SUCCESS", 'sys');
                     },
                 });
                 authBtn.classList.remove('hidden');
-                log("Googleログインをしてください");
-            } catch (err) { log("Auth Init Err: " + err.message, true); }
+            } catch (err) { trace("GSI_INIT_ERR: " + err.message, 'err'); }
         }
-
         authBtn.onclick = () => tokenClient && tokenClient.requestAccessToken({ prompt: 'consent' });
 
-        async function initGemini() {
+        // PCM再生用キュー
+        let nextStartTime = 0;
+
+        async function connectGemini() {
             if (!accessToken) return;
-            log("Gemini 2.5 接続試行中...");
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                // Multimodal Live API エンドポイント
-                const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BiDiGenerateContent?key=${API_KEY}`;
+                // 仕様に基づく v1beta エンドポイント
+                const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
+                trace(`Connecting v1beta...`, 'sys');
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    log("✅ ネットワーク接続成功。準備中...");
-                    ws.send(JSON.stringify({
-                        setup: { model: "models/gemini-2.5-flash" }
-                    }));
+                    trace("✅ WS OPENED", 'sys');
+                    const setup = {
+                        setup: {
+                            model: "models/gemini-2.5-flash",
+                            generation_config: { response_modalities: ["audio"] }
+                        }
+                    };
+                    ws.send(JSON.stringify(setup));
+                    trace("SETUP SENT", 'send');
                 };
 
-                ws.onclose = (ev) => log(`🔌 接続切断 (Code: ${ev.code})`, true);
-                ws.onerror = (err) => log("❌ 通信エラー発生", true);
+                ws.onclose = (ev) => trace(`🔌 CLOSED Code:${ev.code}`, 'err');
+                ws.onerror = (err) => trace("❌ WS ERR (Key/Domain?)", 'err');
 
                 ws.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
+                    if (data.setupComplete) trace("✅ GEMINI READY", 'sys');
 
-                    // 準備完了メッセージ
-                    if (data.setupComplete) log("✅ アシスタント準備完了。どうぞ！");
-
-                    // 音声データの再生
+                    // 24kHz Raw PCM 再生ロジック
                     if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
                         const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
-                        const binary = atob(base64), bytes = new Uint8Array(binary.length);
-                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                        const buf = await audioCtx.decodeAudioData(bytes.buffer);
+                        const binary = atob(base64);
+                        const len = binary.length;
+                        const bytes = new Uint8Array(len);
+                        for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+
+                        // 16-bit PCM (Little Endian) -> Float32 変換
+                        const pcm16 = new Int16Array(bytes.buffer);
+                        const floats = new Float32Array(pcm16.length);
+                        for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
+
+                        // 24kHz で再生用バッファ作成
+                        const audioBuf = audioCtx.createBuffer(1, floats.length, 24000);
+                        audioBuf.getChannelData(0).set(floats);
+
                         const source = audioCtx.createBufferSource();
-                        source.buffer = buf; source.connect(audioCtx.destination); source.start();
+                        source.buffer = audioBuf;
+                        source.connect(audioCtx.destination);
+
+                        // 途切れないようにスケジュール再生
+                        const now = audioCtx.currentTime;
+                        if (nextStartTime < now) nextStartTime = now;
+                        source.start(nextStartTime);
+                        nextStartTime += audioBuf.duration;
+
+                        if (pcm16.length > 0) trace(`PLAYING: ${pcm16.length} samples (24kHz)`, 'recv');
                     }
                 };
 
@@ -166,31 +238,38 @@
                 processor.onaudioprocess = (e) => {
                     if (!isRecording || !ws || ws.readyState !== 1) return;
                     const input = e.inputBuffer.getChannelData(0);
-                    const pcm = new Int16Array(input.length);
-                    for (let i = 0; i < input.length; i++) pcm[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
+                    const pcm16 = new Int16Array(input.length);
+                    for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
 
-                    // リアルタイム音声送信 (Native API Specifications: snake_case)
-                    ws.send(JSON.stringify({
+                    const packet = {
                         realtime_input: {
                             media_chunks: [{
-                                data: btoa(String.fromCharCode(...new Uint8Array(pcm.buffer))),
+                                data: btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer))),
                                 mime_type: "audio/pcm"
                             }]
                         }
-                    }));
+                    };
+                    ws.send(JSON.stringify(packet));
                 };
-            } catch (err) { log("Init Error: " + err.message, true); }
+
+            } catch (err) { trace(`CRITICAL_ERR: ${err.message}`, 'err'); }
         }
 
         async function start() {
-            if (!accessToken) { log("まずログインしてください", true); return; }
+            if (!accessToken) { trace("LOGIN FIRST", 'err'); return; }
             if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
-            if (!ws || ws.readyState !== 1) await initGemini();
+            if (!ws || ws.readyState !== 1) await connectGemini();
             isRecording = true;
-            btn.classList.add('recording'); txt.innerText = 'LISTENING'; log("聴いています...");
+            btn.classList.add('recording'); txt.innerText = 'LISTENING';
+            nextStartTime = 0;
+            trace("--- REC START ---", 'sys');
         }
 
-        function stop() { isRecording = false; btn.classList.remove('recording'); txt.innerText = 'READY'; }
+        function stop() {
+            isRecording = false;
+            btn.classList.remove('recording'); txt.innerText = 'READY';
+            trace("--- REC STOP ---", 'sys');
+        }
 
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
