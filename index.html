@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.2.1 - CamelCase Fix</title>
+    <title>Voice Secretary v1.2.5 - Ultimate Debug</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -68,18 +68,20 @@
             left: 0;
             width: 100%;
             height: 50vh;
-            background: rgba(0, 0, 0, 0.95);
-            border-top: 1px solid #444;
+            background: #000;
+            border-top: 3px solid #0f0;
             font-size: 8px;
             padding: 10px;
             overflow-y: scroll;
             z-index: 1000;
-            color: #0f0;
+            color: #0c0;
             line-height: 1.1;
+            word-break: break-all;
         }
 
         .trace-err {
-            color: #f44;
+            color: #fff;
+            background: #c00;
             font-weight: bold;
         }
 
@@ -91,32 +93,47 @@
 
         .trace-send {
             color: #0af;
+            border-left: 2px solid #0af;
+            padding-left: 4px;
         }
 
         .trace-recv {
             color: #f0f;
-            border-bottom: 1px solid #333;
-        }
-
-        .trace-conn {
-            color: #fff;
-            background: #00f;
+            border-left: 2px solid #f0f;
+            padding-left: 4px;
+            border-bottom: 1px dotted #333;
         }
 
         .trace-important {
-            color: #ff0;
+            color: #fff;
+            background: #0066cc;
             font-weight: bold;
-            background: #330;
+        }
+
+        #micLevel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            font-size: 10px;
+            color: #0f0;
+            z-index: 2000;
+            font-weight: bold;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 4px;
+            border-radius: 4px;
         }
     </style>
 </head>
 
 <body class="h-screen flex flex-col items-center">
+    <!-- Mic Monitor -->
+    <div id="micLevel">MIC LVL: 0%</div>
+
     <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-6 px-8 text-center"
         style="height: 50vh">
         <header>
             <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
-                    class="text-[9px] text-zinc-600 block">v1.2.1 (CamelCase Protocols)</span></h1>
+                    class="text-[9px] text-zinc-600 block">v1.2.5 (Faithful Implementation)</span></h1>
         </header>
         <div class="main flex-1 flex items-center justify-center">
             <div id="btn" class="relative w-36 h-36 cursor-pointer active:scale-95 transition-transform">
@@ -126,16 +143,17 @@
                 </div>
             </div>
         </div>
-        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Wait for Setup Complete</div>
+        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Reference-Faithful Booting...</div>
     </div>
 
+    <!-- Trace Logger -->
     <div id="fullTrace">
-        <div class="trace-sys">--- V1.2.1 PROTOCOL STRICT MODE ---</div>
+        <div class="trace-sys">--- V1.2.5 ULTIMATE MANUAL MODE ---</div>
     </div>
 
     <script>
         const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
-        const traceEl = document.getElementById('fullTrace'), st = document.getElementById('status'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
+        const traceEl = document.getElementById('fullTrace'), micEl = document.getElementById('micLevel'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
 
         function trace(msg, type = '') {
             const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
@@ -143,78 +161,104 @@
             div.className = type ? 'trace-' + type : '';
             div.innerText = `[${time}] ${msg}`;
             traceEl.appendChild(div);
-            if (traceEl.childNodes.length > 800) traceEl.removeChild(traceEl.firstChild);
+            if (traceEl.childNodes.length > 1000) traceEl.removeChild(traceEl.firstChild);
             traceEl.scrollTop = traceEl.scrollHeight;
         }
 
         let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
 
         async function connectGemini() {
+            // Manual p42: Literal match
             const MODEL_NAME = "models/gemini-2.5-flash-native-audio-preview-12-2025";
-            trace(`ACTIVATE: ${MODEL_NAME}`, 'sys');
+            trace(`ACTIVATE: ${MODEL_NAME}`, 'important');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                // v1alpha WebSocket
+                // Manual p179: v1alpha endpoint
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
+                trace(`SOCKET: ${url}`, 'sys');
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    trace("🔥 NETWORK LINK ESTABLISHED", 'conn');
-                    // STRICTOR camelCase for WebSocket raw JSON
+                    trace("🔥 NETWORK_LINK: ESTABLISHED", 'sys');
+                    // Manual p43, p179, p192, p211: Combine into one 'config' block
                     const setup = {
                         setup: {
                             model: MODEL_NAME,
-                            generationConfig: { responseModalities: ["AUDIO"] }
+                            config: {
+                                response_modalities: ["AUDIO"],
+                                enable_affective_dialog: true,
+                                proactivity: { proactive_audio: true },
+                                thinking_config: { thinking_budget: 1024 },
+                                input_audio_transcription: {},
+                                output_audio_transcription: {}
+                            }
                         }
                     };
                     ws.send(JSON.stringify(setup));
-                    trace("SENT: Setup (CamelCase)", 'send');
+                    trace("SENT_SETUP: " + JSON.stringify(setup), 'send');
                 };
 
-                ws.onclose = (ev) => trace(`🔌 CLOSED [${ev.code}] ${ev.reason}`, 'err');
-                ws.onerror = (err) => trace("❌ SOCKET ERROR", 'err');
+                ws.onclose = (ev) => trace(`🔌 DISCONNECTED [${ev.code}] ${ev.reason || 'No Reason'}`, 'err');
+                ws.onerror = (e) => trace("❌ SOCKET_ERROR: Hardware or Network issue", 'err');
 
                 ws.onmessage = async (e) => {
-                    const data = JSON.parse(e.data);
-                    trace(`RECV: [${Object.keys(data).join(', ')}]`, 'recv');
+                    trace(`RECV_RAW: ${e.data}`, 'recv');
+                    try {
+                        const data = JSON.parse(e.data);
 
-                    if (data.setupComplete) trace("⭐ SETUP COMPLETE. Server is ready.", 'important');
+                        // Check for standard setup response
+                        if (data.setupComplete) trace("⭐ setupComplete (Protocol Link Success)", 'important');
 
-                    if (data.serverContent) {
-                        const sc = data.serverContent;
-                        if (sc.interrupted) trace(" └ ⚠️ INTERRUPTED", 'err');
-                        if (sc.turnComplete) trace(" └ ✅ TURN COMPLETE", 'important');
+                        // Check all possible serverContent keys (Manual p114, p147, p243)
+                        const sc = data.serverContent || data.server_content;
+                        if (sc) {
+                            if (sc.interrupted) trace(" ⚠️ MODEL_INTERRUPTED_SIGNAL", 'err');
 
-                        if (sc.modelTurn) {
-                            const part = sc.modelTurn.parts?.[0];
-                            if (part?.inlineData) {
-                                trace(` └ 🔊 AUDIO RECEIVED (${Math.round(part.inlineData.data.length / 1024)}KB)`, 'important');
-                                playRawPCM(part.inlineData.data);
+                            const turn = sc.modelTurn || sc.model_turn;
+                            if (turn?.parts?.[0]) {
+                                const part = turn.parts[0];
+                                if (part.inlineData) {
+                                    trace("🔊 AUDIO_DATA_BLOB received", 'important');
+                                    playRawPCM(part.inlineData.data);
+                                }
+                                if (part.text) trace(`� MODEL_TEXT_PART: ${part.text}`, 'sys');
                             }
+
+                            if (sc.input_transcription) trace(`📝 IN_TRANS: ${sc.input_transcription.text}`, 'sys');
+                            if (sc.output_transcription) trace(`📝 OUT_TRANS: ${sc.output_transcription.text}`, 'sys');
                         }
-                    }
+
+                        if (data.usageMetadata) trace(`📊 UTILIZATION: ${JSON.stringify(data.usageMetadata)}`, 'sys');
+                    } catch (err) { trace(`PARSE_ERR: ${err.message}`, 'err'); }
                 };
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                trace("🎤 MIC READY", 'sys');
+                trace("🎤 MIC: GRANTED. Binding to AudioContext...", 'sys');
                 const source = audioCtx.createMediaStreamSource(stream);
                 processor = audioCtx.createScriptProcessor(2048, 1, 1);
                 source.connect(processor); processor.connect(audioCtx.destination);
 
                 processor.onaudioprocess = (e) => {
-                    if (!isRecording || !ws || ws.readyState !== 1) return;
                     const input = e.inputBuffer.getChannelData(0);
+
+                    // Real-time Mic Level Monitor (User Request: Log more data)
+                    let p = 0; for (let v of input) if (Math.abs(v) > p) p = Math.abs(v);
+                    micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
+                    if (p < 0.001 && isRecording) micEl.style.color = 'red'; else micEl.style.color = '#0f0';
+
+                    if (!isRecording || !ws || ws.readyState !== 1) return;
+
                     const pcm16 = new Int16Array(input.length);
                     for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
 
-                    // Sending with fixed camelCase fields
+                    // Manual p143 literal
                     const packet = {
-                        realtimeInput: {
-                            mediaChunks: [{
+                        realtime_input: {
+                            media_chunks: [{
                                 data: btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer))),
-                                mimeType: "audio/pcm;rate=16000"
+                                mime_type: "audio/pcm;rate=16000"
                             }]
                         }
                     };
@@ -222,7 +266,7 @@
                     pcmSentCount++;
                 };
 
-            } catch (err) { trace(`INIT_ERR: ${err.message}`, 'err'); }
+            } catch (err) { trace(`BOOT_ERR: ${err.message}`, 'err'); }
         }
 
         function playRawPCM(base64) {
@@ -250,25 +294,24 @@
             if (!ws || ws.readyState !== 1) await connectGemini();
             pcmSentCount = 0; isRecording = true;
             btn.classList.add('recording'); txt.innerText = 'ON';
-            trace("--- SESSION START ---", 'sys');
+            trace("--- RECORDING BEGIN ---", 'sys');
         }
 
         function stop() {
             isRecording = false;
             btn.classList.remove('recording'); txt.innerText = 'READY';
-            trace(`--- SESSION END --- (Sent ${pcmSentCount} pkts)`, 'sys');
-
-            // Send turn complete signal if logic allows or stream end
+            trace(`--- RECORDING END (Sent ${pcmSentCount} pkts) ---`, 'sys');
             if (ws && ws.readyState === 1) {
-                ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
-                trace("SENT: audioStreamEnd", 'send');
+                // Manual p251/277: Literal
+                ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
+                trace("SENT: audio_stream_end", 'send');
             }
         }
 
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.2.1 Protocol Corrected.");
+        trace("v1.2.5 Strict Compliance Engine Online.");
     </script>
 </body>
 
