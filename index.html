@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.2.8 - Binary Support</title>
+    <title>Voice Secretary v1.2.9 - Performance</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -15,10 +15,10 @@
         }
 
         body {
-            background: #001;
+            background: #000;
             color: #fff;
             overflow: hidden;
-            font-family: 'Courier New', Courier, monospace;
+            font-family: sans-serif;
         }
 
         .ring {
@@ -54,11 +54,11 @@
 
             0%,
             100% {
-                transform: scale(1.05);
+                transform: scale(1.02);
             }
 
             50% {
-                transform: scale(1.2);
+                transform: scale(1.1);
             }
         }
 
@@ -67,52 +67,32 @@
             bottom: 0;
             left: 0;
             width: 100%;
-            height: 50vh;
-            background: #000;
-            border-top: 2px solid #555;
-            font-size: 8px;
-            padding: 10px;
+            height: 35vh;
+            background: rgba(0, 0, 0, 0.8);
+            border-top: 1px solid #333;
+            font-size: 10px;
+            padding: 12px;
             overflow-y: scroll;
             z-index: 1000;
-            color: #0d0;
-            line-height: 1.2;
-            word-break: break-all;
+            color: #eee;
+            line-height: 1.4;
+            font-family: monospace;
         }
 
         .trace-err {
-            color: #fff;
-            background: #d33;
-            font-weight: bold;
+            color: #ff4444;
         }
 
         .trace-sys {
             color: #888;
-            border-left: 2px solid #888;
-            padding-left: 4px;
-        }
-
-        .trace-send {
-            color: #0af;
-            border-left: 2px solid #0af;
-            padding-left: 4px;
         }
 
         .trace-recv {
             color: #f0f;
-            border-left: 2px solid #f0f;
-            padding-left: 4px;
-            border-bottom: 1px dotted #333;
         }
 
         .trace-audio {
-            color: #000;
-            background: #0df;
-            font-weight: bold;
-        }
-
-        .trace-important {
-            color: #000;
-            background: #0f0;
+            color: #0df;
             font-weight: bold;
         }
 
@@ -123,50 +103,44 @@
             font-size: 10px;
             color: #0f0;
             z-index: 2000;
-            font-weight: bold;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 4px;
-            border-radius: 4px;
         }
     </style>
 </head>
 
 <body class="h-screen flex flex-col items-center">
-    <div id="micLevel">MIC LVL: 0%</div>
+    <div id="micLevel">MIC: 0%</div>
 
-    <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-6 px-8 text-center"
-        style="height: 50vh">
+    <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-10 px-8 text-center"
+        style="height: 65vh">
         <header>
-            <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
-                    class="text-[9px] text-zinc-600 block">v1.2.8 (Binary Stream Mode)</span></h1>
+            <h1 class="text-xs font-bold tracking-widest uppercase opacity-50">Gemini 2.5 Native <span
+                    class="block text-[9px]">v1.2.9 PERFORMANCE MODE</span></h1>
         </header>
         <div class="main flex-1 flex items-center justify-center">
-            <div id="btn" class="relative w-36 h-36 cursor-pointer active:scale-95 transition-transform">
+            <div id="btn" class="relative w-44 h-44 cursor-pointer active:scale-95 transition-transform">
                 <div class="ring"></div>
                 <div class="fill absolute inset-3 bg-zinc-950 rounded-full flex flex-col items-center justify-center">
-                    <div id="recText" class="text-[10px] font-bold text-zinc-600 tracking-widest uppercase">READY</div>
+                    <div id="recText" class="text-[11px] font-bold text-zinc-500 tracking-widest uppercase">Tap & Speak
+                    </div>
                 </div>
             </div>
         </div>
-        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Reference 143 compliance</div>
+        <div id="status" class="text-zinc-500 text-[10px] mb-4 uppercase">Ready to talk.</div>
     </div>
 
-    <!-- Trace Logger -->
-    <div id="fullTrace">
-        <div class="trace-sys">--- V1.2.8 BINARY PROTOCOL DECODER ---</div>
-    </div>
+    <div id="fullTrace"></div>
 
     <script>
         const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
-        const traceEl = document.getElementById('fullTrace'), micEl = document.getElementById('micLevel'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
+        const traceEl = document.getElementById('fullTrace'), micEl = document.getElementById('micLevel'), st = document.getElementById('status'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
 
         function trace(msg, type = '') {
-            const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
             const div = document.createElement('div');
             div.className = type ? 'trace-' + type : '';
-            div.innerText = `[${time}] ${msg}`;
+            div.innerText = `• ${msg}`;
             traceEl.appendChild(div);
-            if (traceEl.childNodes.length > 1000) traceEl.removeChild(traceEl.firstChild);
+            // Limit DOM nodes to 50 items for mobile performance
+            if (traceEl.childNodes.length > 50) traceEl.removeChild(traceEl.firstChild);
             traceEl.scrollTop = traceEl.scrollHeight;
         }
 
@@ -174,19 +148,16 @@
 
         async function connectGemini() {
             const MODEL_NAME = "models/gemini-2.5-flash-native-audio-preview-12-2025";
-            trace(`INIT: ${MODEL_NAME}`, 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
                 ws = new WebSocket(url);
-
-                // Manual 143: Binary-capable configuration
                 ws.binaryType = 'arraybuffer';
 
                 ws.onopen = () => {
-                    trace("🔥 NETWORK_LINK: OK (Binary Mode)", 'sys');
+                    trace("Connected to Gemini Server.", 'sys');
                     const setup = {
                         setup: {
                             model: MODEL_NAME,
@@ -194,37 +165,32 @@
                         }
                     };
                     ws.send(JSON.stringify(setup));
-                    trace("SENT: JSON Setup package", 'send');
                 };
 
-                ws.onclose = (ev) => trace(`🔌 CLOSED [${ev.code}] ${ev.reason}`, 'err');
-                ws.onerror = (e) => trace("❌ NETWORK_ERROR", 'err');
-
+                ws.onclose = () => trace("Connection Closed.", 'err');
                 ws.onmessage = async (e) => {
                     if (e.data instanceof ArrayBuffer) {
-                        // Binary Frame received (Likely Raw Audio per Manual 143)
-                        const bytes = new Uint8Array(e.data);
-                        trace(`RECV_BIN: ${bytes.length} bytes [${bytes.slice(0, 4).join(',')}]`, 'audio');
-
-                        // Try parsing as JSON first in case it's a JSON frame sent as binary
-                        try {
-                            const text = new TextDecoder().decode(e.data);
-                            const json = JSON.parse(text);
-                            trace(`RECV_JSON_IN_BIN: ${text}`, 'recv');
-                            handleJSON(json);
-                        } catch (err) {
-                            // Truly binary PCM audio (24kHz as per Manual 476)
-                            playRawBinaryPCM(e.data);
-                        }
+                        playRawBinaryPCM(e.data);
+                        // Summary only (don't dump raw bytes)
+                        if (pcmSentCount % 50 === 0) trace("Receiving voice stream...", 'audio');
                     } else {
-                        // Text Frame received (Standard JSON)
-                        trace(`RECV_TEXT: ${e.data}`, 'recv');
-                        try { handleJSON(JSON.parse(e.data)); } catch (err) { trace(`PARSE_ERR: ${err.message}`, 'err'); }
+                        const data = JSON.parse(e.data);
+                        if (data.setupComplete) trace("⭐ AI is ready to listen.", 'sys');
+                        if (data.error) trace(`Error: ${data.error.message}`, 'err');
+
+                        const sc = data.serverContent || data.server_content;
+                        if (sc) {
+                            const turn = sc.modelTurn || sc.model_turn;
+                            if (turn?.parts?.[0]) {
+                                const part = turn.parts[0];
+                                if (part.inlineData) playRawPCM_B64(part.inlineData.data);
+                                if (part.text) trace(`AI: ${part.text}`, 'recv');
+                            }
+                        }
                     }
                 };
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                trace("🎤 MIC ACCESS OK", 'sys');
                 const source = audioCtx.createMediaStreamSource(stream);
                 processor = audioCtx.createScriptProcessor(2048, 1, 1);
                 source.connect(processor); processor.connect(audioCtx.destination);
@@ -232,43 +198,18 @@
                 processor.onaudioprocess = (e) => {
                     const input = e.inputBuffer.getChannelData(0);
                     let p = 0; for (let v of input) if (Math.abs(v) > p) p = Math.abs(v);
-                    micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
+                    micEl.innerText = `MIC: ${Math.round(p * 100)}%`;
 
                     if (!isRecording || !ws || ws.readyState !== 1) return;
                     const pcm16 = new Int16Array(input.length);
                     for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
-
-                    const packet = {
-                        realtime_input: {
-                            media_chunks: [{
-                                data: btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer))),
-                                mime_type: "audio/pcm;rate=16000"
-                            }]
-                        }
-                    };
-                    ws.send(JSON.stringify(packet));
+                    ws.send(JSON.stringify({
+                        realtime_input: { media_chunks: [{ data: btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer))), mime_type: "audio/pcm;rate=16000" }] }
+                    }));
                     pcmSentCount++;
                 };
 
-            } catch (err) { trace(`BOOT_ERR: ${err.message}`, 'err'); }
-        }
-
-        function handleJSON(data) {
-            if (data.setupComplete || data.setup_complete) trace("⭐ setupComplete received!", 'important');
-            if (data.error) trace(`🚨 SERVER_ERROR: ${JSON.stringify(data.error)}`, 'err');
-
-            const sc = data.serverContent || data.server_content;
-            if (sc) {
-                const turn = sc.modelTurn || sc.model_turn;
-                if (turn?.parts?.[0]) {
-                    const part = turn.parts[0];
-                    if (part.inlineData || part.inline_data) {
-                        const audioB64 = (part.inlineData || part.inline_data).data;
-                        trace(`🔊 AUDIO_JSON RECEIVED (${audioB64.length} chars)`, 'important');
-                        playRawPCM_Base64(audioB64);
-                    }
-                }
-            }
+            } catch (err) { trace(`Boot failed: ${err.message}`, 'err'); }
         }
 
         function playRawBinaryPCM(buffer) {
@@ -276,21 +217,20 @@
                 const pcm16 = new Int16Array(buffer);
                 const floats = new Float32Array(pcm16.length);
                 for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
-
-                const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // 24kHz stream
+                const audioBuf = audioCtx.createBuffer(1, floats.length, 24000);
                 audioBuf.getChannelData(0).set(floats);
                 const source = audioCtx.createBufferSource();
                 source.buffer = audioBuf; source.connect(audioCtx.destination);
-
                 const now = audioCtx.currentTime;
                 if (nextStartTime < now) nextStartTime = now;
                 source.start(nextStartTime);
                 nextStartTime += audioBuf.duration;
-            } catch (e) { trace(`BIN_PLAY_ERR: ${e.message}`, 'err'); }
+            } catch (e) { }
         }
 
-        function playRawPCM_Base64(base64) {
-            const binary = atob(base64), bytes = new Uint8Array(binary.length);
+        function playRawPCM_B64(b64) {
+            const binary = atob(b64);
+            const bytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
             playRawBinaryPCM(bytes.buffer);
         }
@@ -299,24 +239,21 @@
             if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
             if (!ws || ws.readyState !== 1) await connectGemini();
             pcmSentCount = 0; isRecording = true;
-            btn.classList.add('recording'); txt.innerText = 'ON';
-            trace("🎤 MIC ON", 'sys');
+            btn.classList.add('recording'); txt.innerText = 'LISTENING';
+            st.innerText = "Speak now...";
         }
 
         function stop() {
             isRecording = false;
-            btn.classList.remove('recording'); txt.innerText = 'READY';
-            trace(`🎤 MIC OFF (Sent ${pcmSentCount})`, 'sys');
-            if (ws && ws.readyState === 1) {
-                ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
-                trace("SENT: audio_stream_end", 'send');
-            }
+            btn.classList.remove('recording'); txt.innerText = 'Tap & Speak';
+            st.innerText = "Processing...";
+            if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
         }
 
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.2.8 Hybrid Protocol Loaded.");
+        trace("Performance Mode ready.", 'sys');
     </script>
 </body>
 
