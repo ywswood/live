@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.1.3 - Direct Key Auth</title>
+    <title>Voice Secretary v1.1.5 - Gemini 2.5 Live</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -103,13 +103,13 @@
 </head>
 
 <body class="h-screen flex flex-col items-center">
+    <!-- UI Area -->
     <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-10 px-8 text-center"
         style="height: 60vh">
         <header>
-            <h1 class="text-xl font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
-                    class="text-[10px] text-zinc-600 block">v1.1.3 Direct connection</span></h1>
+            <h1 class="text-lg font-bold italic tracking-tighter uppercase">Gemini 2.5 Live <span
+                    class="text-[9px] text-zinc-600 block">v1.1.5 (Manual Model Fix)</span></h1>
         </header>
-
         <div class="main flex-1 flex items-center justify-center">
             <div id="btn" class="relative w-40 h-40 cursor-pointer active:scale-95 transition-transform">
                 <div class="ring"></div>
@@ -118,16 +118,14 @@
                 </div>
             </div>
         </div>
-
         <div class="w-full pb-4">
-            <div id="status" class="text-zinc-500 text-[10px] mb-2 font-mono uppercase tracking-widest">Standalone Mode
-                Enabled.</div>
+            <div id="status" class="text-zinc-500 text-[9px] mb-2 font-mono uppercase">Waiting for Press...</div>
         </div>
     </div>
 
     <!-- Trace Logger -->
     <div id="fullTrace">
-        <div class="trace-sys">--- START TRACE (V1.1.3 API-KEY ONLY) ---</div>
+        <div class="trace-sys">--- START TRACE (V1.1.5 MANUAL MODEL NAME) ---</div>
     </div>
 
     <script>
@@ -140,7 +138,7 @@
             div.className = type ? 'trace-' + type : '';
             div.innerText = `[${time}] ${msg}`;
             traceEl.appendChild(div);
-            if (traceEl.childNodes.length > 300) traceEl.removeChild(traceEl.firstChild);
+            if (traceEl.childNodes.length > 500) traceEl.removeChild(traceEl.firstChild);
             traceEl.scrollTop = traceEl.scrollHeight;
             st.innerText = msg;
         }
@@ -149,7 +147,8 @@
         let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
 
         async function connectGemini() {
-            trace("Establishing Direct WebSocket Connection...", 'sys');
+            const MODEL_NAME = "models/gemini-live-2.5-flash-preview-native-audio-09-2025";
+            trace(`Connecting with: ${MODEL_NAME}`, 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
@@ -158,10 +157,10 @@
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    trace("🔥 API CONNECTED SUCCESSFULLY!", 'conn');
+                    trace("🔥 NETWORK LINK ESTABLISHED", 'conn');
                     const setup = {
                         setup: {
-                            model: "models/gemini-2.5-flash",
+                            model: MODEL_NAME,
                             generation_config: { response_modalities: ["audio"] }
                         }
                     };
@@ -174,8 +173,7 @@
 
                 ws.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
-
-                    if (data.setupComplete) trace("⭐ GEMINI READY: Waiting for your voice...", 'conn');
+                    if (data.setupComplete) trace("⭐ GEMINI 2.5 READY!", 'conn');
 
                     if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
                         const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
@@ -186,7 +184,7 @@
                         const floats = new Float32Array(pcm16.length);
                         for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
 
-                        const audioBuf = audioCtx.createBuffer(1, floats.length, 24000);
+                        const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // Output 24kHz
                         audioBuf.getChannelData(0).set(floats);
                         const source = audioCtx.createBufferSource();
                         source.buffer = audioBuf; source.connect(audioCtx.destination);
@@ -195,7 +193,7 @@
                         if (nextStartTime < now) nextStartTime = now;
                         source.start(nextStartTime);
                         nextStartTime += audioBuf.duration;
-                        trace(`RECV: Audio chunk (${pcm16.length} samples)`, 'recv');
+                        trace(`RECV: Audio Data (${pcm16.length} samples)`, 'recv');
                     }
                 };
 
@@ -221,7 +219,7 @@
                     };
                     ws.send(JSON.stringify(packet));
                     pcmSentCount++;
-                    if (pcmSentCount % 30 === 0) trace(`SEND: Voice Stream... (${pcmSentCount} packets)`, 'send');
+                    if (pcmSentCount % 40 === 0) trace(`SEND: Voice streaming (${pcmSentCount} pkts)`, 'send');
                 };
 
             } catch (err) { trace(`INIT_ERR: ${err.message}`, 'err'); }
@@ -229,11 +227,8 @@
 
         async function start() {
             if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
-            if (!ws || ws.readyState !== 1) {
-                await connectGemini();
-            }
-            pcmSentCount = 0;
-            isRecording = true;
+            if (!ws || ws.readyState !== 1) await connectGemini();
+            pcmSentCount = 0; isRecording = true;
             btn.classList.add('recording'); txt.innerText = 'LISTENING';
             trace("--- RECORDING START ---", 'sys');
         }
@@ -247,7 +242,7 @@
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.1.3 API-Key Mode Loader.");
+        trace("v1.1.5 Manual Model Name Loader.");
     </script>
 </body>
 
