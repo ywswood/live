@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Voice Secretary - Multiplatform Debug</title>
+    <title>Voice Secretary - v1.0.5</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://accounts.google.com/gsi/client" onload="initAuthClient()" async defer></script>
     <script src="https://apis.google.com/js/api.js"></script>
@@ -81,7 +81,7 @@
             </div>
         </div>
         <div id="statusBox" class="status-box w-full pb-8">
-            <div id="status" class="text-zinc-400 text-sm mb-4 cursor-pointer">読み込み中...(ここをタップして確認)</div>
+            <div id="status" class="text-zinc-400 text-sm mb-4 cursor-pointer">初期化中...</div>
             <div id="authBtn"
                 class="bg-white text-black px-8 py-3 rounded-full font-bold text-sm cursor-pointer hover:bg-zinc-200 hidden mx-auto">
                 Google ログイン</div>
@@ -101,19 +101,6 @@
             st.style.color = isError ? "#ff4d4d" : "#999";
         }
 
-        // 起動時チェック
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                if (st.innerText.includes("読み込み中")) log("ライブラリが読み込めません。ネット環境か広告ブロックを確認してください。");
-            }, 5000);
-        });
-
-        st.onclick = () => {
-            let info = `V: 1.0.3 | Auth: ${tokenClient ? 'OK' : 'NO'} | Token: ${accessToken ? 'OK' : 'NO'}`;
-            if (!navigator.mediaDevices) info += " | 🎙️: NOT FOUND(Use HTTPS)";
-            log(info);
-        };
-
         function initAuthClient() {
             try {
                 tokenClient = google.accounts.oauth2.initTokenClient({
@@ -122,7 +109,7 @@
                         if (res.error) { log("Login Err: " + res.error, true); return; }
                         accessToken = res.access_token;
                         authBtn.style.display = 'none';
-                        log("ログインOK。🎙️長押しで話してください");
+                        log("ログイン成功。🎙️長押しで開始");
                     },
                 });
                 authBtn.classList.remove('hidden');
@@ -134,7 +121,7 @@
 
         async function initGemini() {
             if (!accessToken) return;
-            log("Gemini 接続中...");
+            log("Gemini 2.5 接続中...");
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
@@ -143,14 +130,17 @@
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    log("✅ 接続完了！");
-                    ws.send(JSON.stringify({ setup: { model: "models/gemini-2.0-flash-exp" } }));
+                    log("✅ WebSocket接続成功");
+                    // モデル名を gemini-2.5-flash に設定
+                    ws.send(JSON.stringify({ setup: { model: "models/gemini-2.5-flash" } }));
                 };
                 ws.onclose = (ev) => log(`🔌 接続切断 (Code: ${ev.code})`, true);
-                ws.onerror = (err) => log("❌ WSエラー。APIキー制限の可能性があります", true);
+                ws.onerror = (err) => log("❌ 通信エラー", true);
 
                 ws.onmessage = async (e) => {
                     const data = JSON.parse(e.data);
+                    if (data.setupComplete) log("✅ アシスタント準備完了");
+
                     if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
                         const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
                         const binary = atob(base64), bytes = new Uint8Array(binary.length);
@@ -171,7 +161,12 @@
                     const input = e.inputBuffer.getChannelData(0);
                     const pcm = new Int16Array(input.length);
                     for (let i = 0; i < input.length; i++) pcm[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
-                    ws.send(JSON.stringify({ realtimeInput: { data: { data: btoa(String.fromCharCode(...new Uint8Array(pcm.buffer))), mimeType: "audio/pcm" } } }));
+
+                    // Native Audio Dialog プロトコル (camelCase)
+                    const base64Data = btoa(String.fromCharCode(...new Uint8Array(pcm.buffer)));
+                    ws.send(JSON.stringify({
+                        realtimeInput: { data: { data: base64Data, mimeType: "audio/pcm" } }
+                    }));
                 };
             } catch (err) { log("Init Error: " + err.message, true); }
         }
