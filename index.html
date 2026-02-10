@@ -7,6 +7,9 @@
     <title>Internal Audio AI</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google API Client Libraries -->
+    <script src="https://accounts.google.com/gsi/client" onload="initAuthClient()" async defer></script>
+    <script src="https://apis.google.com/js/api.js"></script>
     <style>
         :root {
             --cyan: #00f2ea;
@@ -85,11 +88,21 @@
         </div>
 
         <div class="status-box">
-            <div id="status" class="text-zinc-400 text-sm mb-4">ボタンを長押しして話しかけてください</div>
+            <div id="status" class="text-zinc-400 text-sm mb-4">ライブラリを読み込み中...</div>
+            <div id="authBtn"
+                class="bg-white text-black px-6 py-2 rounded-full font-bold text-sm cursor-pointer hover:bg-zinc-200 transition-colors hidden">
+                Google ログイン
+            </div>
         </div>
     </div>
 
     <script>
+        const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
+        const CLIENT_ID = "218926241376-m5rqri5is7nsaur63vrpqjkchmai378p.apps.googleusercontent.com";
+        const SCOPES = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks";
+
+        let tokenClient = null;
+        let accessToken = null;
         let ws = null;
         let audioCtx = null;
         let processor = null;
@@ -98,58 +111,87 @@
         const btn = document.getElementById('btn');
         const st = document.getElementById('status');
         const txt = document.getElementById('recText');
+        const authBtn = document.getElementById('authBtn');
 
-        async function init() {
+        function initAuthClient() {
             try {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${location.host}/ws`);
-                ws.binaryType = 'arraybuffer';
-
-                ws.onmessage = async (e) => {
-                    // Python サーバーからはバイナリオーディオが直接届く
-                    const buffer = await audioCtx.decodeAudioData(e.data);
-                    const src = audioCtx.createBufferSource();
-                    src.buffer = buffer;
-                    src.connect(audioCtx.destination);
-                    src.start();
-                };
-
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const src = audioCtx.createMediaStreamSource(stream);
-                processor = audioCtx.createScriptProcessor(2048, 1, 1);
-                src.connect(processor);
-                processor.connect(audioCtx.destination);
-
-                processor.onaudioprocess = (e) => {
-                    if (!isRecording || !ws || ws.readyState !== 1) return;
-                    const input = e.inputBuffer.getChannelData(0);
-                    const pcm = new Int16Array(input.length);
-                    for (let i = 0; i < input.length; i++) {
-                        pcm[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
-                    }
-                    ws.send(pcm.buffer);
-                };
-                st.innerText = "接続されました。どうぞ！";
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: CLIENT_ID,
+                    scope: SCOPES,
+                    callback: (response) => {
+                        if (response.error !== undefined) throw (response);
+                        accessToken = response.access_token;
+                        authBtn.style.display = 'none';
+                        st.innerText = "ログイン完了。長押しで話してください。";
+                    },
+                });
+                authBtn.classList.remove('hidden');
+                st.innerText = "ログインして開始してください";
             } catch (err) {
-                console.error("Init error:", err);
-                st.innerText = "マイクまたはサーバーの初期化に失敗しました。";
+                console.error("Auth init error:", err);
+                st.innerText = "認証の初期化に失敗しました。";
             }
         }
 
+        authBtn.onclick = () => {
+            if (tokenClient) tokenClient.requestAccessToken({ prompt: 'consent' });
+        };
+
+        async function initGemini() {
+            if (!accessToken) return;
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+
+            const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BiDiGenerateContent?key=${API_KEY}`;
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ setup: { model: "models/gemini-2.0-flash-exp" } }));
+                st.innerText = "アシスタントが準備できました。";
+            };
+
+            ws.onmessage = async (e) => {
+                const data = JSON.parse(e.data);
+                if (data.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
+                    const base64 = data.serverContent.modelTurn.parts[0].inlineData.data;
+                    const binary = atob(base64);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                    const buf = await audioCtx.decodeAudioData(bytes.buffer);
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = buf;
+                    source.connect(audioCtx.destination);
+                    source.start();
+                }
+            };
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = audioCtx.createMediaStreamSource(stream);
+            processor = audioCtx.createScriptProcessor(2048, 1, 1);
+            source.connect(processor);
+            processor.connect(audioCtx.destination);
+
+            processor.onaudioprocess = (e) => {
+                if (!isRecording || !ws || ws.readyState !== 1) return;
+                const input = e.inputBuffer.getChannelData(0);
+                const pcm = new Int16Array(input.length);
+                for (let i = 0; i < input.length; i++) pcm[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
+                const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm.buffer)));
+                ws.send(JSON.stringify({ realtimeInput: { data: { data: base64, mimeType: "audio/pcm" } } }));
+            };
+        }
+
         function start() {
-            if (!audioCtx) init();
+            if (!accessToken) { st.innerText = "まずログインしてください。"; return; }
+            if (!ws || ws.readyState !== 1) initGemini();
             isRecording = true;
             btn.classList.add('recording');
             txt.innerText = 'LISTENING';
-            st.innerText = "聴いています...";
         }
 
         function stop() {
             isRecording = false;
             btn.classList.remove('recording');
             txt.innerText = 'READY';
-            st.innerText = "考えています...";
         }
 
         btn.onmousedown = start; btn.onmouseup = stop;
