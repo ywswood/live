@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.2.6 - Manual Wire-Strict</title>
+    <title>Voice Secretary v1.2.7 - Connection Recovery</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -101,7 +101,6 @@
             color: #f0f;
             border-left: 2px solid #f0f;
             padding-left: 4px;
-            background: rgba(255, 0, 255, 0.05);
         }
 
         .trace-important {
@@ -109,15 +108,31 @@
             background: #0f0;
             font-weight: bold;
         }
+
+        #micLevel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            font-size: 10px;
+            color: #0f0;
+            z-index: 2000;
+            font-weight: bold;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 4px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 
 <body class="h-screen flex flex-col items-center">
+    <!-- Mic Monitor -->
+    <div id="micLevel">MIC LVL: 0%</div>
+
     <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-6 px-8 text-center"
         style="height: 50vh">
         <header>
             <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
-                    class="text-[9px] text-zinc-600 block">v1.2.6 (Manual Wire-Strict)</span></h1>
+                    class="text-[9px] text-zinc-600 block">v1.2.7 (Connection Restored)</span></h1>
         </header>
         <div class="main flex-1 flex items-center justify-center">
             <div id="btn" class="relative w-36 h-36 cursor-pointer active:scale-95 transition-transform">
@@ -127,16 +142,16 @@
                 </div>
             </div>
         </div>
-        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Listening for any response...</div>
+        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Check Trace for Data Flow</div>
     </div>
 
     <div id="fullTrace">
-        <div class="trace-sys">--- V1.2.6 WIRE-STRICT DEBUG ---</div>
+        <div class="trace-sys">--- V1.2.7 RESTORATION ---</div>
     </div>
 
     <script>
         const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
-        const traceEl = document.getElementById('fullTrace'), st = document.getElementById('status'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
+        const traceEl = document.getElementById('fullTrace'), micEl = document.getElementById('micLevel'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
 
         function trace(msg, type = '') {
             const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
@@ -151,57 +166,50 @@
         let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
 
         async function connectGemini() {
-            // Manual Line 42: Exact string
-            const MODEL_NAME = "gemini-2.5-flash-native-audio-preview-12-2025";
-            trace(`INIT: ${MODEL_NAME}`, 'sys');
+            // models/ prefix is MANDATORY for raw WebSocket (Corrected from v1.2.6)
+            const MODEL_NAME = "models/gemini-2.5-flash-native-audio-preview-12-2025";
+            trace(`ACTIVATE: ${MODEL_NAME}`, 'sys');
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
+                // Using v1alpha as per Manual for Native Audio
                 const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
                 ws = new WebSocket(url);
 
                 ws.onopen = () => {
-                    trace("🔥 WebSocket Opened", 'sys');
-                    // Setup per wire protocol specifications + manual values
+                    trace("🔥 NETWORK_LINK: OK", 'sys');
                     const setup = {
                         setup: {
                             model: MODEL_NAME,
-                            generation_config: {
-                                response_modalities: ["AUDIO"]
-                                // Optional keys from manual can go here if needed
-                            }
+                            generation_config: { response_modalities: ["AUDIO"] }
                         }
                     };
                     ws.send(JSON.stringify(setup));
-                    trace("SENT: " + JSON.stringify(setup), 'send');
+                    trace("SENT SETUP: " + JSON.stringify(setup), 'send');
                 };
 
                 ws.onclose = (ev) => trace(`🔌 CLOSED [${ev.code}] ${ev.reason}`, 'err');
-                ws.onerror = (err) => trace("❌ NETWORK ERROR", 'err');
-
                 ws.onmessage = async (e) => {
-                    // SHOW EVERYTHING (User request: Fail logs are important)
                     trace(`RECV_RAW: ${e.data}`, 'recv');
-
                     try {
                         const data = JSON.parse(e.data);
-                        if (data.setupComplete) trace("⭐ setupComplete received!", 'important');
+                        if (data.setupComplete || data.setup_complete) trace("⭐ setupComplete (LINKED)", 'important');
 
-                        if (data.serverContent) {
-                            const sc = data.serverContent;
+                        // Hunt for audio in both snake and camel case
+                        const sc = data.serverContent || data.server_content;
+                        if (sc) {
                             const turn = sc.modelTurn || sc.model_turn;
                             if (turn?.parts?.[0]) {
                                 const part = turn.parts[0];
-                                if (part.inlineData || part.inline_data) {
-                                    const audioBase64 = (part.inlineData || part.inline_data).data;
-                                    trace(`🔊 AUDIO DATA: ${audioBase64.length} chars`, 'important');
-                                    playRawPCM(audioBase64);
+                                const audio = (part.inlineData || part.inline_data)?.data;
+                                if (audio) {
+                                    trace("🔊 AUDIO DATA RECEIVED", 'important');
+                                    playRawPCM(audio);
                                 }
                             }
                         }
-
-                        if (data.error) trace(`🚨 SERVER_SIDE_ERROR: ${JSON.stringify(data.error)}`, 'err');
+                        if (data.error) trace(`🚨 SERVER_ERROR: ${JSON.stringify(data.error)}`, 'err');
                     } catch (err) { trace(`PARSE_ERR: ${err.message}`, 'err'); }
                 };
 
@@ -212,8 +220,11 @@
                 source.connect(processor); processor.connect(audioCtx.destination);
 
                 processor.onaudioprocess = (e) => {
-                    if (!isRecording || !ws || ws.readyState !== 1) return;
                     const input = e.inputBuffer.getChannelData(0);
+                    let p = 0; for (let v of input) if (Math.abs(v) > p) p = Math.abs(v);
+                    micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
+
+                    if (!isRecording || !ws || ws.readyState !== 1) return;
                     const pcm16 = new Int16Array(input.length);
                     for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
 
@@ -249,7 +260,7 @@
                 if (nextStartTime < now) nextStartTime = now;
                 source.start(nextStartTime);
                 nextStartTime += audioBuf.duration;
-            } catch (e) { trace(`DECODE_ERR: ${e.message}`, 'err'); }
+            } catch (e) { trace(`PLAY_ERR: ${e.message}`, 'err'); }
         }
 
         async function start() {
@@ -263,7 +274,7 @@
         function stop() {
             isRecording = false;
             btn.classList.remove('recording'); txt.innerText = 'READY';
-            trace(`🎤 MIC OFF (Sent ${pcmSentCount} pkts)`, 'sys');
+            trace(`🎤 MIC OFF (Sent ${pcmSentCount})`, 'sys');
             if (ws && ws.readyState === 1) {
                 ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
                 trace("SENT: audio_stream_end", 'send');
@@ -273,7 +284,7 @@
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.2.6 Wire-Strict Ready.");
+        trace("v1.2.7 Restoration Ready.");
     </script>
 </body>
 
