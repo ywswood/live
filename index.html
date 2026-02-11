@@ -182,16 +182,25 @@
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                // サーバー側からWebSocket URLを取得
-                const response = await fetch('/api/gemini-websocket-url');
-                const data = await response.json();
-                if (!data.url) {
-                    trace("ERROR: WebSocket URLの取得に失敗", 'err');
+                // セッションIDを取得してWebSocketに渡す
+                const cookies = document.cookie.split(';');
+                let sessionId = null;
+                for (let cookie of cookies) {
+                    const [name, value] = cookie.trim().split('=');
+                    if (name === 'session_id') {
+                        sessionId = value;
+                        break;
+                    }
+                }
+                
+                if (!sessionId) {
+                    trace("❌ セッションIDが見つかりません", 'err');
                     return;
                 }
 
-                const url = data.url;
-                ws = new WebSocket(url);
+                // WebSocket URLにセッションIDを追加
+                const wsUrl = `ws://${window.location.host}/ws?session_id=${sessionId}`;
+                ws = new WebSocket(wsUrl);
 
                 // Manual 143: Binary-capable configuration
                 ws.binaryType = 'arraybuffer';

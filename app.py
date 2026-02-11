@@ -129,11 +129,19 @@ async def send_gmail_message(to: str, subject: str, body: str):
         return f"{to} 宛にメールを送信しました。"
     except Exception as e: return f"Gmail送信失敗: {str(e)}"
 
-async def list_recent_emails(max_results: int = 5):
+async def list_recent_emails(max_results: int = 5, request: Request = None):
     """最近のメール件名を取得します。"""
     print(f"📩 メールリスト取得中 (最大{max_results}件)")
     try:
-        service = build('gmail', 'v1', credentials=get_google_creds())
+        # 現在のユーザー認証情報を取得
+        if request:
+            creds = get_user_credentials(request)
+            if not creds:
+                return "認証情報が見つかりません。Google認証が必要です。"
+        else:
+            creds = get_google_creds()
+        
+        service = build('gmail', 'v1', credentials=creds)
         results = service.users().messages().list(userId='me', maxResults=max_results).execute()
         messages = results.get('messages', [])
         if not messages: return "新着メールはありません。"
@@ -575,6 +583,22 @@ async def get():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("🚀 WebSocket 接続開始（クライアントが接続を試みています）")
+    
+    # セッション認証
+    session_id = websocket.query_params.get("session_id")
+    if not session_id or session_id not in sessions:
+        print("❌ セッションIDが無効です")
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
+    
+    session = sessions[session_id]
+    if not session.get("authenticated"):
+        print("❌ ユーザーが認証されていません")
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
+    
+    print(f"✅ ユーザー認証済み: {session.get('email')}")
+    
     api_key, model_id = get_gemini_config()
     if not api_key:
         print("❌ APIキーが取得できないため、接続を拒否します")
@@ -632,13 +656,13 @@ async def websocket_endpoint(websocket: WebSocket):
                         if message.tool_call:
                             for call in message.tool_call.function_calls:
                                 res = None
-                                if call.name == "search_drive_files": res = await search_drive_files(call.args["query"])
-                                elif call.name == "send_gmail_message": res = await send_gmail_message(call.args["to"], call.args["subject"], call.args["body"])
-                                elif call.name == "list_recent_emails": res = await list_recent_emails(call.args.get("max_results", 5))
-                                elif call.name == "list_calendar_events": res = await list_calendar_events(call.args.get("days", 7))
-                                elif call.name == "add_calendar_event": res = await add_calendar_event(call.args["summary"], call.args["start_iso"], call.args["end_iso"])
-                                elif call.name == "list_tasks": res = await list_tasks()
-                                elif call.name == "add_task": res = await add_task(call.args["title"])
+                                if call.name == "search_drive_files": res = await search_drive_files(call.args["query"], request)
+                                elif call.name == "send_gmail_message": res = await send_gmail_message(call.args["to"], call.args["subject"], call.args["body"], request)
+                                elif call.name == "list_recent_emails": res = await list_recent_emails(call.args.get("max_results", 5), request)
+                                elif call.name == "list_calendar_events": res = await list_calendar_events(call.args.get("days", 7), request)
+                                elif call.name == "add_calendar_event": res = await add_calendar_event(call.args["summary"], call.args["start_iso"], call.args["end_iso"], request)
+                                elif call.name == "list_tasks": res = await list_tasks(request)
+                                elif call.name == "add_task": res = await add_task(call.args["title"], request)
                                 
                                 if res:
                                     # print(f"🔧 ツール結果送信: {call.name}")
