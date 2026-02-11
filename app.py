@@ -264,6 +264,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.post("/simple-auth")
+async def simple_auth(request: Request):
+    """社内ツール用簡易ログイン"""
+    try:
+        data = await request.json()
+        email = data.get("email", "")
+        password = data.get("password", "")
+        
+        if not email or not password:
+            raise HTTPException(status_code=400, detail="メールアドレスとパスワードが必要です")
+        
+        if not is_woodstock_domain(email):
+            raise HTTPException(status_code=403, detail="woodstock.co.jpドメインのメールアドレスが必要です")
+        
+        # 簡易認証（デモ用：パスワードチェックは省略）
+        session_id = secrets.token_urlsafe(32)
+        sessions[session_id] = {
+            "authenticated": True,
+            "email": email,
+            "name": email.split("@")[0],  # メールアドレスの前半分を名前として使用
+        }
+        
+        response = JSONResponse({"success": True})
+        response.set_cookie("session_id", session_id, httponly=True)
+        return response
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ログインエラー: {str(e)}")
+
 @app.get("/auth/login")
 async def auth_login():
     """Google認証開始"""

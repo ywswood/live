@@ -58,14 +58,25 @@
                 const auth = await response.json();
                 
                 if (!auth.authenticated) {
+                    // 社内ツール用：簡易ログイン画面
                     document.body.innerHTML = `
                         <div class="h-screen flex flex-col items-center justify-center bg-gray-900 text-white">
                             <div class="text-center">
                                 <h1 class="text-2xl font-bold mb-4">Voice Secretary</h1>
-                                <p class="mb-6">woodstock.co.jpドメインのアカウントでログインしてください</p>
-                                <a href="/auth/login" class="bg-blue-500 hover:bg-blue-600 px-6 py-3 rounded-lg inline-block">
-                                    Googleでログイン
-                                </a>
+                                <p class="mb-6">社内ツール用ログイン</p>
+                                <div class="bg-gray-800 rounded-lg p-6 mb-4">
+                                    <input type="email" id="email-input" placeholder="woodstock.co.jpメールアドレス" 
+                                           class="w-full px-4 py-2 rounded bg-gray-700 text-white mb-4">
+                                    <input type="password" id="password-input" placeholder="パスワード" 
+                                           class="w-full px-4 py-2 rounded bg-gray-700 text-white mb-4">
+                                    <button onclick="simpleLogin()" 
+                                            class="w-full bg-blue-500 hover:bg-blue-600 px-6 py-3 rounded-lg">
+                                        ログイン
+                                    </button>
+                                </div>
+                                <div class="text-sm text-gray-400">
+                                    <a href="/auth/login" class="hover:text-white">Google認証でログイン</a>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -76,6 +87,39 @@
             } catch (error) {
                 console.error('認証チェックエラー:', error);
                 return false;
+            }
+        }
+
+        // 簡易ログイン関数
+        async function simpleLogin() {
+            const email = document.getElementById('email-input').value;
+            const password = document.getElementById('password-input').value;
+            
+            if (!email || !password) {
+                alert('メールアドレスとパスワードを入力してください');
+                return;
+            }
+            
+            if (!email.endsWith('@woodstock.co.jp')) {
+                alert('woodstock.co.jpドメインのメールアドレスを入力してください');
+                return;
+            }
+            
+            // 簡易認証（デモ用）
+            try {
+                const response = await fetch('/simple-auth', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({email, password})
+                });
+                
+                if (response.ok) {
+                    window.location.reload();
+                } else {
+                    alert('ログインに失敗しました');
+                }
+            } catch (error) {
+                alert('ログインエラー: ' + error.message);
             }
         }
 
