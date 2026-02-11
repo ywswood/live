@@ -172,8 +172,30 @@
                     trace("SENT: JSON Setup package", 'send');
                 };
 
-                ws.onclose = (ev) => trace(`🔌 CLOSED [${ev.code}] ${ev.reason}`, 'err');
-                ws.onerror = (e) => trace("❌ NETWORK_ERROR", 'err');
+                ws.onclose = (ev) => {
+                    trace(`🔌 CLOSED [${ev.code}] ${ev.reason}`, 'err');
+                    // 自動再接続を試みる
+                    if (isRecording) {
+                        trace("🔄 録音中に切断：再接続を試みます", 'sys');
+                        setTimeout(() => {
+                            if (isRecording) {
+                                connectGemini();
+                            }
+                        }, 1000);
+                    }
+                };
+                ws.onerror = (e) => {
+                    trace("❌ NETWORK_ERROR", 'err');
+                    // エラー時も再接続を試みる
+                    if (isRecording) {
+                        trace("🔄 エラー発生：再接続を試みます", 'sys');
+                        setTimeout(() => {
+                            if (isRecording) {
+                                connectGemini();
+                            }
+                        }, 2000);
+                    }
+                };
 
                 ws.onmessage = async (e) => {
                     if (e.data instanceof ArrayBuffer) {
@@ -376,7 +398,6 @@
 
         async function start() {
             if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
-            if (!ws || ws.readyState !== 1) await connectGemini();
             
             // 割り込み機能：AIが喋っている場合は停止
             if (isPlaying && audioSources.length > 0) {
@@ -393,6 +414,22 @@
                 nextStartTime = audioCtx.currentTime;
             }
             
+            // WebSocket接続をチェック・再接続
+            if (!ws || ws.readyState !== 1) {
+                trace("🔄 WebSocketを再接続", 'sys');
+                await connectGemini();
+                // 接続待機
+                let attempts = 0;
+                while ((!ws || ws.readyState !== 1) && attempts < 10) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    attempts++;
+                }
+                if (!ws || ws.readyState !== 1) {
+                    trace("❌ WebSocket接続失敗", 'err');
+                    return;
+                }
+            }
+            
             pcmSentCount = 0; isRecording = true;
             btn.classList.add('recording'); txt.innerText = 'ON';
             trace("🎤 MIC ON", 'sys');
@@ -407,9 +444,13 @@
             isRecording = false;
             btn.classList.remove('recording'); txt.innerText = 'READY';
             trace(`🎤 MIC OFF (Sent ${pcmSentCount})`, 'sys');
+            
+            // WebSocketが接続されている場合のみ送信
             if (ws && ws.readyState === 1) {
                 ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
                 trace("SENT: audio_stream_end", 'send');
+            } else {
+                trace("⚠️ WebSocket未接続：audio_stream_end未送信", 'sys');
             }
         }
 
