@@ -158,12 +158,30 @@
                 }
                 
                 trace("✅ 認証済み：アプリを初期化", 'sys');
+                
+                // 認証成功後、少し待ってからクッキーを確認
+                setTimeout(() => {
+                    const sessionId = getSessionId();
+                    trace(`🔍 遅延確認 セッションID: ${sessionId}`, 'sys');
+                }, 100);
+                
                 return true;
                 
             } catch (error) {
                 trace(`❌ 認証チェックエラー: ${error.message}`, 'err');
                 return false;
             }
+        }
+
+        function getSessionId() {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'session_id') {
+                    return decodeURIComponent(value);
+                }
+            }
+            return null;
         }
 
         function trace(msg, type = '') {
@@ -186,7 +204,7 @@
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                // セッションIDを取得してWebSocketに渡す
+                // セッションIDを取得（複数回試行）
                 function getSessionId() {
                     const cookies = document.cookie.split(';');
                     for (let cookie of cookies) {
@@ -198,8 +216,18 @@
                     return null;
                 }
                 
-                const sessionId = getSessionId();
-                trace(`🔍 セッションID: ${sessionId}`, 'sys');
+                let sessionId = null;
+                let attempts = 0;
+                while (!sessionId && attempts < 5) {
+                    sessionId = getSessionId();
+                    if (!sessionId) {
+                        trace(`🔍 セッションID取得試行 ${attempts + 1}/5`, 'sys');
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        attempts++;
+                    }
+                }
+                
+                trace(`🔍 最終セッションID: ${sessionId}`, 'sys');
                 
                 if (!sessionId) {
                     trace("❌ セッションIDが見つかりません。再ログインしてください。", 'err');
@@ -210,6 +238,7 @@
 
                 // WebSocket URLにセッションIDを追加
                 const wsUrl = `ws://${window.location.host}/ws?session_id=${sessionId}`;
+                trace(`🔗 WebSocket接続: ${wsUrl}`, 'sys');
                 ws = new WebSocket(wsUrl);
 
                 // Manual 143: Binary-capable configuration
