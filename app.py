@@ -617,6 +617,7 @@ async def websocket_endpoint(websocket: WebSocket):
     # Geminiに教えるツール一覧
     config = {
         "system_instruction": "あなたは日本語で話す秘書です。ユーザーがどんな言語で話しても、必ず日本語で応答してください。英語は絶対に使わないでください。ツールの結果もすべて日本語で説明してください。自然で丁寧な日本語でお願いします。",
+        "generation_config": {"response_modalities": ["AUDIO"]},
         "tools": [
             {"google_search": {}},
             {"function_declarations": [
@@ -656,13 +657,16 @@ async def websocket_endpoint(websocket: WebSocket):
                         if message.tool_call:
                             for call in message.tool_call.function_calls:
                                 res = None
-                                if call.name == "search_drive_files": res = await search_drive_files(call.args["query"], request)
-                                elif call.name == "send_gmail_message": res = await send_gmail_message(call.args["to"], call.args["subject"], call.args["body"], request)
-                                elif call.name == "list_recent_emails": res = await list_recent_emails(call.args.get("max_results", 5), request)
-                                elif call.name == "list_calendar_events": res = await list_calendar_events(call.args.get("days", 7), request)
-                                elif call.name == "add_calendar_event": res = await add_calendar_event(call.args["summary"], call.args["start_iso"], call.args["end_iso"], request)
-                                elif call.name == "list_tasks": res = await list_tasks(request)
-                                elif call.name == "add_task": res = await add_task(call.args["title"], request)
+                                # モックリクエストを作成
+                                mock_request = create_request_with_session(session_id)
+                                
+                                if call.name == "search_drive_files": res = await search_drive_files(call.args["query"], mock_request)
+                                elif call.name == "send_gmail_message": res = await send_gmail_message(call.args["to"], call.args["subject"], call.args["body"], mock_request)
+                                elif call.name == "list_recent_emails": res = await list_recent_emails(call.args.get("max_results", 5), mock_request)
+                                elif call.name == "list_calendar_events": res = await list_calendar_events(call.args.get("days", 7), mock_request)
+                                elif call.name == "add_calendar_event": res = await add_calendar_event(call.args["summary"], call.args["start_iso"], call.args["end_iso"], mock_request)
+                                elif call.name == "list_tasks": res = await list_tasks(mock_request)
+                                elif call.name == "add_task": res = await add_task(call.args["title"], mock_request)
                                 
                                 if res:
                                     # print(f"🔧 ツール結果送信: {call.name}")
@@ -684,6 +688,18 @@ async def websocket_endpoint(websocket: WebSocket):
         print("🔌 クライアントが切断しました")
     except Exception as e:
         print(f"❌ サーバーエラー: {e}")
+
+# リクエストオブジェクトを渡すためのヘルパー
+def create_request_with_session(session_id: str):
+    """セッションIDからリクエストオブジェクトを模擬"""
+    class MockRequest:
+        def __init__(self, session_id):
+            self.session_id = session_id
+        
+        def cookies(self):
+            return {"session_id": session_id}
+    
+    return MockRequest(session_id)
 
 if __name__ == "__main__":
     import uvicorn
