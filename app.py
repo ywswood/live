@@ -584,18 +584,26 @@ async def websocket_endpoint(websocket: WebSocket):
     
     print(f"✅ ユーザー認証済み: {session.get('email')}")
     
+    # クライアントにデバッグ情報を送信
+    await websocket.send_text(f"DEBUG: ユーザー認証済み: {session.get('email')}")
+    
     api_key, model_id = get_gemini_config()
     if not api_key:
         print("❌ APIキーが取得できないため、接続を拒否します")
+        await websocket.send_text("DEBUG: APIキーが取得できません")
         await websocket.close()
         return
 
     print(f"📡 使用モデル: {model_id}")
+    await websocket.send_text(f"DEBUG: 使用モデル: {model_id}")
+    
     try:
         client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
         print("✅ Gemini Client 初期化成功")
+        await websocket.send_text("DEBUG: Gemini Client 初期化成功")
     except Exception as e:
         print(f"❌ Gemini Client 初期化失敗: {e}")
+        await websocket.send_text(f"DEBUG: Gemini Client 初期化失敗: {e}")
         await websocket.close()
         return
     
