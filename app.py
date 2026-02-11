@@ -14,14 +14,12 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
 from google_auth_oauthlib.flow import Flow
 from email.mime.text import MIMEText
-#from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 # ================================================
 # 1. 環境設定
 # ================================================
-#load_dotenv()
 
 # 固定キーを優先
 FIXED_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -240,6 +238,20 @@ def is_woodstock_domain(email: str) -> bool:
     """ドメインがwoodstock.co.jpかチェック"""
     return email.endswith("@woodstock.co.jp")
 
+# ================================================
+# 4. FastAPI & WebSocket
+# ================================================
+app = FastAPI()
+
+# CORSミドルウェアを追加
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.get("/auth/login")
 async def auth_login():
     """Google認証開始"""
@@ -335,32 +347,6 @@ def dict_to_credentials(creds_dict):
         client_secret=creds_dict['client_secret'],
         scopes=creds_dict['scopes']
     )
-
-def get_user_credentials(request: Request):
-    """現在のユーザーのGoogle認証情報を取得"""
-    session_id = request.cookies.get("session_id")
-    if not session_id or session_id not in sessions:
-        return None
-    
-    session = sessions[session_id]
-    if not session.get("authenticated"):
-        return None
-    
-    return dict_to_credentials(session["credentials"])
-
-# ================================================
-# 4. FastAPI & WebSocket
-# ================================================
-app = FastAPI()
-
-# CORSミドルウェアを追加
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 @app.get("/api/gemini-websocket-url")
 async def get_gemini_websocket_url():
@@ -470,8 +456,6 @@ async def websocket_endpoint(websocket: WebSocket):
         print("🔌 クライアントが切断しました")
     except Exception as e:
         print(f"❌ サーバーエラー: {e}")
-
-# html_content variable removed. Served from index.html file.
 
 if __name__ == "__main__":
     import uvicorn
