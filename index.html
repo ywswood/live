@@ -143,7 +143,8 @@
     <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-6 px-8 text-center">
         <header>
             <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
-                    class="text-[9px] text-zinc-600 block">v1.2.8 (Binary Stream Mode)</span></h1>
+                    class="text-[9px] text-zinc-600 block">v1.2.8-PWA (2025-02-11)</span></h1>
+            <div class="text-[8px] text-zinc-500 mt-1">PWA Ready • Authenticated</div>
         </header>
         <div class="main flex-1 flex items-center justify-center">
             <div id="btn" class="relative w-36 h-36 cursor-pointer active:scale-95 transition-transform">
@@ -265,11 +266,30 @@
                     }
                 };
 
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // スマホ対応：マイク設定を最適化
+                const constraints = {
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        sampleRate: 16000,
+                        channelCount: 1
+                    }
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 trace("🎤 MIC ACCESS OK", 'sys');
                 const source = audioCtx.createMediaStreamSource(stream);
-                processor = audioCtx.createScriptProcessor(2048, 1, 1);
-                source.connect(processor); processor.connect(audioCtx.destination);
+                
+                // iOS対応：AudioWorkNodeが使えない場合のフォールバック
+                if (audioCtx.createScriptProcessor) {
+                    processor = audioCtx.createScriptProcessor(2048, 1, 1);
+                    source.connect(processor); 
+                    processor.connect(audioCtx.destination);
+                } else {
+                    trace("⚠️ ScriptProcessor not supported", 'err');
+                    return;
+                }
 
                 processor.onaudioprocess = (e) => {
                     const input = e.inputBuffer.getChannelData(0);
@@ -277,6 +297,21 @@
                     micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
 
                     if (!isRecording || !ws || ws.readyState !== 1) return;
+                    
+                    // 音声データの検証
+                    let hasSound = false;
+                    for (let i = 0; i < input.length; i++) {
+                        if (Math.abs(input[i]) > 0.001) {
+                            hasSound = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!hasSound) {
+                        trace("🔇 No audio detected", 'sys');
+                        return;
+                    }
+                    
                     const pcm16 = new Int16Array(input.length);
                     for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
 
@@ -290,9 +325,13 @@
                     };
                     ws.send(JSON.stringify(packet));
                     pcmSentCount++;
+                    trace(`📤 Sent audio chunk: ${pcmSentCount}`, 'send');
                 };
 
-            } catch (err) { trace(`BOOT_ERR: ${err.message}`, 'err'); }
+            } catch (err) { 
+                trace(`BOOT_ERR: ${err.message}`, 'err');
+                console.error('Microphone error:', err);
+            }
         }
 
         function handleJSON(data) {
