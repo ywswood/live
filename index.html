@@ -39,6 +39,45 @@
                 </div>
             </div>
             
+            <!-- Gmail機能 -->
+            <div class="bg-white border border-red-600 rounded-lg p-6 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-black">Gmail</h2>
+                    <div>
+                        <button onclick="loadUnreadEmails()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm mr-2">
+                            未読確認
+                        </button>
+                        <button onclick="toggleComposeForm()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm">
+                            作成
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- メール作成フォーム -->
+                <div id="compose-form" class="hidden mb-4 bg-gray-100 border border-red-600 rounded p-4">
+                    <div class="mb-3">
+                        <input type="email" id="email-to" placeholder="宛先" 
+                               class="w-full px-3 py-2 border border-red-600 rounded bg-white text-black">
+                    </div>
+                    <div class="mb-3">
+                        <input type="text" id="email-subject" placeholder="件名" 
+                               class="w-full px-3 py-2 border border-red-600 rounded bg-white text-black">
+                    </div>
+                    <div class="mb-3">
+                        <textarea id="email-body" placeholder="本文" rows="4"
+                                  class="w-full px-3 py-2 border border-red-600 rounded bg-white text-black"></textarea>
+                    </div>
+                    <button onclick="sendEmail()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded">
+                        送信
+                    </button>
+                </div>
+                
+                <!-- 未読メールリスト -->
+                <div id="email-list" class="space-y-2 max-h-60 overflow-y-auto">
+                    <!-- メールがここに表示される -->
+                </div>
+            </div>
+            
             <div class="bg-white border border-red-600 rounded-lg p-6">
                 <h3 class="text-lg font-semibold text-black mb-4">System Log</h3>
                 <div id="trace-log" class="bg-gray-100 border border-red-600 rounded p-4 h-64 overflow-y-auto font-mono text-xs text-black"></div>
@@ -52,6 +91,79 @@
         const micEl = document.getElementById('mic-level');
         const traceEl = document.getElementById('trace-log');
         const logoutBtn = document.getElementById('logout-btn');
+
+        // Gmail機能
+        async function loadUnreadEmails() {
+            try {
+                trace("📧 未読メールを取得中...", 'sys');
+                const response = await fetch('/gmail/unread');
+                const data = await response.json();
+                
+                const emailList = document.getElementById('email-list');
+                emailList.innerHTML = '';
+                
+                if (data.emails.length === 0) {
+                    emailList.innerHTML = '<div class="text-sm text-gray-600">未読の重要メールはありません</div>';
+                    return;
+                }
+                
+                data.emails.forEach(email => {
+                    const emailDiv = document.createElement('div');
+                    emailDiv.className = 'bg-gray-100 border border-red-600 rounded p-3';
+                    emailDiv.innerHTML = `
+                        <div class="text-sm font-semibold text-black">${email.subject}</div>
+                        <div class="text-xs text-gray-600">${email.from}</div>
+                        <div class="text-xs text-gray-500">${email.snippet}</div>
+                    `;
+                    emailList.appendChild(emailDiv);
+                });
+                
+                trace(`📧 ${data.emails.length}件の未読メールを取得`, 'sys');
+                
+            } catch (error) {
+                trace(`📧 エラー: ${error.message}`, 'err');
+            }
+        }
+        
+        function toggleComposeForm() {
+            const form = document.getElementById('compose-form');
+            form.classList.toggle('hidden');
+        }
+        
+        async function sendEmail() {
+            const to = document.getElementById('email-to').value;
+            const subject = document.getElementById('email-subject').value;
+            const body = document.getElementById('email-body').value;
+            
+            if (!to || !subject || !body) {
+                alert('宛先、件名、本文をすべて入力してください');
+                return;
+            }
+            
+            try {
+                trace("📧 メールを送信中...", 'sys');
+                const response = await fetch('/gmail/send', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({to, subject, body})
+                });
+                
+                if (response.ok) {
+                    trace("📧 メール送信完了", 'sys');
+                    // フォームをクリア
+                    document.getElementById('email-to').value = '';
+                    document.getElementById('email-subject').value = '';
+                    document.getElementById('email-body').value = '';
+                    document.getElementById('compose-form').classList.add('hidden');
+                } else {
+                    const error = await response.json();
+                    trace(`📧 送信エラー: ${error.detail}`, 'err');
+                }
+                
+            } catch (error) {
+                trace(`📧 送信エラー: ${error.message}`, 'err');
+            }
+        }
 
         // 認証チェック
         async function checkAuth() {

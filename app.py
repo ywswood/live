@@ -293,6 +293,111 @@ async def simple_auth(request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ログインエラー: {str(e)}")
 
+@app.get("/gmail/unread")
+async def get_unread_emails(request: Request):
+    """未読の重要メールを取得"""
+    session_id = request.cookies.get("session_id")
+    if not session_id or session_id not in sessions:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    session = sessions[session_id]
+    if not session.get("authenticated"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        # ユーザーの認証情報を復元
+        credentials = build_credentials(session.get("credentials", {}))
+        
+        # Gmail APIサービスを構築
+        gmail_service = build('gmail', 'v1', credentials=credentials)
+        
+        # 未読の重要メールを取得
+        results = gmail_service.users().messages().list(
+            userId='me',
+            q='is:unread important',
+            maxResults=10
+        ).execute()
+        
+        messages = results.get('messages', [])
+        emails = []
+        
+        for message in messages:
+            msg = gmail_service.users().messages().get(
+                userId='me',
+                id=message['id'],
+                format='metadata',
+                metadataHeaders=['From', 'Subject', 'Date']
+            ).execute()
+            
+            # メール情報を抽出
+            headers = {h['name']: h['value'] for h in msg['payload'].get('headers', [])}
+            
+            emails.append({
+                'id': message['id'],
+                'from': headers.get('From', ''),
+                'subject': headers.get('Subject', ''),
+                'date': headers.get('Date', ''),
+                'snippet': msg.get('snippet', '')
+            })
+        
+        return {"emails": emails}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gmail API error: {str(e)}")
+
+@app.post("/gmail/send")
+async def send_email(request: Request):
+    """メールを送信"""
+    session_id = request.cookies.get("session_id")
+    if not session_id or session_id not in sessions:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    session = sessions[session_id]
+    if not session.get("authenticated"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        data = await request.json()
+        to = data.get("to")
+        subject = data.get("subject")
+        body = data.get("body")
+        
+        if not to or not subject or not body:
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        # ユーザーの認証情報を復元
+        credentials = build_credentials(session.get("credentials", {}))
+        
+        # Gmail APIサービスを構築
+        gmail_service = build('gmail', 'v1', credentials=credentials)
+        
+        # メールメッセージを作成
+        message = f"From: me\r\nTo: {to}\r\nSubject: {subject}\r\n\r\n{body}"
+        raw_message = base64.urlsafe_b64encode(message.encode()).decode()
+        
+        # メールを送信
+        result = gmail_service.users().messages().send(
+            userId='me',
+            body={'raw': raw_message}
+        ).execute()
+        
+        return {"success": True, "message_id": result['id']}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gmail API error: {str(e)}")
+
+def build_credentials(creds_dict):
+    """認証情報を復元"""
+    from google.oauth2.credentials import Credentials
+    return Credentials(
+        token=creds_dict.get('token'),
+        refresh_token=creds_dict.get('refresh_token'),
+        token_uri=creds_dict.get('token_uri'),
+        client_id=creds_dict.get('client_id'),
+        client_secret=creds_dict.get('client_secret'),
+        scopes=creds_dict.get('scopes')
+    )
+
 @app.get("/auth/login")
 async def auth_login():
     """Google認証開始"""
