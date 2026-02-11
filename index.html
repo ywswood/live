@@ -206,28 +206,73 @@
                     }
                 };
                 
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                // iOS対応：getUserMediaの前にAudioContextを再開
+                if (audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                }
+                
+                // スマホ対応：マイクアクセスのタイムアウト設定
+                const stream = await Promise.race([
+                    navigator.mediaDevices.getUserMedia(constraints),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('MIC_TIMEOUT')), 10000))
+                ]);
+                
                 trace("🎤 MIC ACCESS OK", 'sys');
                 const source = audioCtx.createMediaStreamSource(stream);
                 
-                // iOS対応：AudioWorkNodeが使えない場合のフォールバック
+                // iOS/Safari対応：AudioWorkNodeが使えない場合のフォールバック
                 if (audioCtx.createScriptProcessor) {
                     processor = audioCtx.createScriptProcessor(2048, 1, 1);
                     source.connect(processor); 
                     processor.connect(audioCtx.destination);
+                } else if (audioCtx.createAudioWorkletNode) {
+                    // AudioWorkNode対応（モダンブラウザ）
+                    try {
+                        await audioCtx.audioWorklet.addModule('data:application/javascript,' + encodeURIComponent(`
+                            class MicProcessor extends AudioWorkletProcessor {
+                                process(inputs, outputs) {
+                                    const input = inputs[0];
+                                    if (input && input.length > 0) {
+                                        const inputData = input[0];
+                                        // データを処理してグローバル変数に保存
+                                        if (typeof self.postMessage === 'function') {
+                                            self.postMessage({ audioData: Array.from(inputData[0]) });
+                                        }
+                                    }
+                                    return true;
+                                }
+                            }
+                            registerProcessor('mic-processor', MicProcessor);
+                        `));
+                        
+                        processor = audioCtx.createAudioWorkletNode('mic-processor');
+                        processor.port.onmessage = (e) => {
+                            if (e.data.audioData) {
+                                this.handleAudioData(new Float32Array(e.data.audioData));
+                            }
+                        };
+                        source.connect(processor);
+                        processor.connect(audioCtx.destination);
+                    } catch (e) {
+                        trace("⚠️ AudioWorkNode failed", 'err');
+                        // ScriptProcessorにフォールバック
+                        processor = audioCtx.createScriptProcessor(2048, 1, 1);
+                        source.connect(processor); 
+                        processor.connect(audioCtx.destination);
+                    }
                 } else {
-                    trace("⚠️ ScriptProcessor not supported", 'err');
+                    trace("⚠️ No audio processing available", 'err');
                     return;
                 }
 
-                processor.onaudioprocess = (e) => {
-                    const input = e.inputBuffer.getChannelData(0);
+                // AudioWorkNode用のハンドラ関数
+                window.handleAudioData = function(input) {
                     let p = 0; for (let v of input) if (Math.abs(v) > p) p = Math.abs(v);
                     micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
 
                     if (!isRecording || !ws || ws.readyState !== 1) return;
                     
-                    // 音声データの検証
+                    // 音声データの検証（スマホ対応）
                     let hasSound = false;
                     for (let i = 0; i < input.length; i++) {
                         if (Math.abs(input[i]) > 0.001) {
@@ -255,6 +300,10 @@
                     ws.send(JSON.stringify(packet));
                     pcmSentCount++;
                     trace(`📤 Sent audio chunk: ${pcmSentCount}`, 'send');
+                };
+
+                processor.onaudioprocess = (e) => {
+                    window.handleAudioData(e.inputBuffer.getChannelData(0));
                 };
 
             } catch (err) { 
@@ -311,6 +360,11 @@
             pcmSentCount = 0; isRecording = true;
             btn.classList.add('recording'); txt.innerText = 'ON';
             trace("🎤 MIC ON", 'sys');
+            
+            // スマホ対応：タッチイベントで録音開始
+            if ('ontouchstart' in window) {
+                trace("📱 Mobile device detected", 'sys');
+            }
         }
 
         function stop() {
@@ -323,8 +377,26 @@
             }
         }
 
-        btn.onmousedown = start; btn.onmouseup = stop;
-        btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
+        // スマホ対応：タッチイベントの改善
+        btn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            start();
+        });
+        
+        btn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            stop();
+        });
+        
+        btn.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            stop();
+        });
+
+        // PC用：マウスイベント（従来通り）
+        btn.addEventListener('mousedown', start);
+        btn.addEventListener('mouseup', stop);
+        btn.addEventListener('mouseleave', stop);
 
         // ログアウト処理
         logoutBtn.addEventListener('click', async () => {
