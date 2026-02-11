@@ -612,7 +612,7 @@ async def websocket_endpoint(websocket: WebSocket):
         "system_instruction": {
             "parts": [{"text": "あなたは日本語で話す秘書です。ユーザーがどんな言語で話しても、必ず日本語で応答してください。英語は絶対に使わないでください。ツールの結果もすべて日本語で説明してください。自然で丁寧な日本語でお願いします。"}]
         },
-        "response_modalities": ["TEXT"],  # まずTEXTでテスト
+        "response_modalities": ["AUDIO"],  # 音声応答に戻す
         "tools": [
             {"google_search": {}},
             {"function_declarations": [
@@ -633,18 +633,21 @@ async def websocket_endpoint(websocket: WebSocket):
                 print("🎤 クライアントからの音声送信ループ開始")
                 try:
                     while True:
-                        data = await websocket.receive_bytes()
-                        print(f"📤 音声データ受信: {len(data)} bytes")
+                        # 音声データまたは制御メッセージを受信
                         try:
-                            # ドキュメント通りに send_realtime_input を使用
-                            from google.genai import types
-                            await session.send_realtime_input(
-                                audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000")
-                            )
+                            data = await websocket.receive_bytes()
+                            print(f"📤 音声データ受信: {len(data)} bytes")
+                            # 音声データをGeminiに送信（end_of_turn=False）
+                            await session.send(input={"data": data, "mime_type": "audio/pcm"}, end_of_turn=False)
                             print(f"✅ Geminiに音声送信成功: {len(data)} bytes")
-                        except Exception as send_error:
-                            print(f"❌ Gemini送信エラー: {send_error}")
-                            break
+                        except:
+                            # テキストメッセージ（audio_stream_end）を受信
+                            msg = await websocket.receive_text()
+                            control = json.loads(msg)
+                            if control.get("realtime_input", {}).get("audio_stream_end"):
+                                await session.send(input={"data": b"", "mime_type": "audio/pcm"}, end_of_turn=True)
+                                print("📤 audio_stream_end を送信")
+                            continue
                 except Exception as e:
                     print(f"📡 クライアント送信停止: {e}")
 
@@ -653,11 +656,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 try:
                     async for message in session.receive():
                         print(f"📨 Geminiメッセージ受信: {type(message)}")
-                        # TEXT応答を処理
-                        if message.text is not None:
-                            print(f"🤖 AI応答: {message.text}")
-                            # テキストをWebSocketで送信
-                            await websocket.send_text(message.text)
+                        # 音声の返却
+                        if message.server_content and message.server_content.model_turn:
+                            for part in message.server_content.model_turn.parts:
+                                if part.inline_data:
+                                    await websocket.send_bytes(part.inline_data.data)
                         
                         # ツール実行要求の処理
                         if message.tool_call:
@@ -677,9 +680,11 @@ async def websocket_endpoint(websocket: WebSocket):
                                 
                                 if res:
                                     print(f"🔧 ツール結果送信: {call.name}")
-                                    await session.send_tool_response(function_responses=[types.LiveClientToolResponse(
-                                        name=call.name, id=call.id, response={"result": res}
-                                    )])
+                                    await session.send(input=types.LiveClientToolResponse(
+                                        function_responses=[types.LiveClientFunctionResponse(
+                                            name=call.name, id=call.id, response={"result": res}
+                                        )]
+                                    ))
                         
                         if message.server_content and message.server_content.turn_complete:
                             print("✅ Gemini のターンが完了しました")
