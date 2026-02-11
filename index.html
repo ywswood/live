@@ -79,6 +79,16 @@
             }
         }
 
+        // Geminiがメール確認要求を検知した場合の処理
+        function handleEmailRequest(userMessage) {
+            if (userMessage.includes('メール') && 
+                (userMessage.includes('未読') || userMessage.includes('大事') || userMessage.includes('確認'))) {
+                checkImportantEmails();
+                return true;
+            }
+            return false;
+        }
+
         // 認証チェック
         async function checkAuth() {
             try {

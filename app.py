@@ -280,10 +280,31 @@ async def simple_auth(request: Request):
         
         # 簡易認証（デモ用：パスワードチェックは省略）
         session_id = secrets.token_urlsafe(32)
+        
+        # Gmail機能のためにダミー認証情報を設定
+        dummy_credentials = {
+            "token": "dummy_token",
+            "refresh_token": None,
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "client_id": "dummy_client_id",
+            "client_secret": "dummy_client_secret",
+            "scopes": [
+                "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/userinfo.profile",
+                "https://www.googleapis.com/auth/drive",
+                "https://www.googleapis.com/auth/gmail.send",
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/calendar",
+                "https://www.googleapis.com/auth/tasks"
+            ]
+        }
+        
         sessions[session_id] = {
             "authenticated": True,
             "email": email,
             "name": email.split("@")[0],  # メールアドレスの前半分を名前として使用
+            "credentials": dummy_credentials,
+            "simple_auth": True  # 簡易認証フラグ
         }
         
         response = JSONResponse({"success": True})
@@ -303,6 +324,27 @@ async def get_unread_emails(request: Request):
     session = sessions[session_id]
     if not session.get("authenticated"):
         raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # 簡易認証の場合はダミーデータを返す
+    if session.get("simple_auth"):
+        # デモ用のダミーメールデータ
+        dummy_emails = [
+            {
+                'id': 'dummy1',
+                'from': 'boss@woodstock.co.jp',
+                'subject': '明日の会議について',
+                'date': '2025-02-11',
+                'snippet': '明日の午前10時から重要な会議があります...'
+            },
+            {
+                'id': 'dummy2', 
+                'from': 'client@external.com',
+                'subject': 'プロジェクト進捗報告',
+                'date': '2025-02-11',
+                'snippet': '今週のプロジェクト進捗についてご報告します...'
+            }
+        ]
+        return {"emails": dummy_emails}
     
     try:
         # ユーザーの認証情報を復元
