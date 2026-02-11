@@ -3,8 +3,9 @@ import asyncio
 import json
 import base64
 import requests
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
 from googleapiclient.discovery import build
@@ -183,6 +184,27 @@ async def add_task(title: str):
 # 3. FastAPI & WebSocket
 # ================================================
 app = FastAPI()
+
+# CORSミドルウェアを追加
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/api/gemini-websocket-url")
+async def get_gemini_websocket_url():
+    """Gemini WebSocket URLをAPIキー付きで返す"""
+    api_key, model_id = get_gemini_config()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="APIキーが取得できません")
+    
+    # ここでは直接Gemini APIに接続するURLを返す
+    # 将来的にはプロキシWebSocketを実装する予定
+    url = f"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key={api_key}"
+    return {"url": url, "model": model_id}
 
 @app.get("/")
 async def get():

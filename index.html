@@ -156,7 +156,7 @@
     </div>
 
     <script>
-        const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU";
+        // const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU"; // サーバー側に移動
         const traceEl = document.getElementById('fullTrace'), micEl = document.getElementById('micLevel'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
 
         function trace(msg, type = '') {
@@ -179,7 +179,15 @@
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-                const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${API_KEY}`;
+                // サーバー側からWebSocket URLを取得
+                const response = await fetch('/api/gemini-websocket-url');
+                const data = await response.json();
+                if (!data.url) {
+                    trace("ERROR: WebSocket URLの取得に失敗", 'err');
+                    return;
+                }
+
+                const url = data.url;
                 ws = new WebSocket(url);
 
                 // Manual 143: Binary-capable configuration
