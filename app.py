@@ -38,8 +38,8 @@ def get_gemini_config():
         print("❌ GEMINI_API_KEYが設定されていません")
         return None, None
     
-    # 成功していたモデル名を使用
-    return api_key, "gemini-2.0-flash-exp"
+    # 公式ドキュメント通りの正しいモデル名を使用
+    return api_key, "gemini-2.5-flash-native-audio-preview-12-2025"
 
 def report_api_error(api_key):
     """API エラーを API Bank に報告する"""
