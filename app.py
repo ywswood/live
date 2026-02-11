@@ -616,8 +616,15 @@ async def websocket_endpoint(websocket: WebSocket):
     
     # Geminiに教えるツール一覧
     config = {
-        "system_instruction": "あなたは日本語で話す秘書です。ユーザーがどんな言語で話しても、必ず日本語で応答してください。英語は絶対に使わないでください。ツールの結果もすべて日本語で説明してください。自然で丁寧な日本語でお願いします。",
-        "generation_config": {"response_modalities": ["AUDIO"]},
+        "system_instruction": {
+            "parts": [{"text": "あなたは日本語で話す秘書です。ユーザーがどんな言語で話しても、必ず日本語で応答してください。英語は絶対に使わないでください。ツールの結果もすべて日本語で説明してください。自然で丁寧な日本語でお願いします。"}]
+        },
+        "generation_config": {
+            "response_modalities": ["AUDIO"],
+            "speech_config": {
+                "voice_config": {"prebuilt_voice_config": {"voice_name": "Aoede"}}
+            }
+        },
         "tools": [
             {"google_search": {}},
             {"function_declarations": [
