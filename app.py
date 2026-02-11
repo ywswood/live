@@ -211,35 +211,40 @@ sessions = {}
 
 def get_google_flow():
     """Google OAuth2フローを初期化"""
-    if os.path.exists("gcp_creds.json"):
+    # 環境変数から認証情報を取得
+    gcp_creds_content = os.getenv("GCP_CREDS_JSON")
+    
+    if gcp_creds_content:
+        client_config = json.loads(gcp_creds_content)
+    elif os.path.exists("gcp_creds.json"):
         with open("gcp_creds.json", "r") as f:
             client_config = json.load(f)
-        
-        flow = Flow.from_client_config(
-            client_config,
-            scopes=[
-                "https://www.googleapis.com/auth/userinfo.email",
-                "https://www.googleapis.com/auth/userinfo.profile",
-                "https://www.googleapis.com/auth/drive",
-                "https://www.googleapis.com/auth/gmail.send",
-                "https://www.googleapis.com/auth/gmail.readonly",
-                "https://www.googleapis.com/auth/calendar",
-                "https://www.googleapis.com/auth/tasks"
-            ]
-        )
-        
-        # コールバックURLを設定
-        # 環境に応じてコールバックURLを動的に設定
-        render_url = os.getenv("RENDER_EXTERNAL_URL")
-        if render_url:
-            # Render環境
-            flow.redirect_uri = f"{render_url}/oauth2callback"
-        else:
-            # ローカル環境
-            flow.redirect_uri = "http://localhost:8080/oauth2callback"
-        return flow
     else:
-        raise FileNotFoundError("gcp_creds.jsonが見つかりません")
+        raise FileNotFoundError("Google認証情報が見つかりません。環境変数GCP_CREDS_JSONを設定するか、gcp_creds.jsonファイルを配置してください。")
+    
+    flow = Flow.from_client_config(
+        client_config,
+        scopes=[
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+            "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/tasks"
+        ]
+    )
+    
+    # コールバックURLを設定
+    # 環境に応じてコールバックURLを動的に設定
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    if render_url:
+        # Render環境
+        flow.redirect_uri = f"{render_url}/oauth2callback"
+    else:
+        # ローカル環境
+        flow.redirect_uri = "http://localhost:8080/oauth2callback"
+    return flow
 
 def is_woodstock_domain(email: str) -> bool:
     """ドメインがwoodstock.co.jpかチェック"""
