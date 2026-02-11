@@ -183,18 +183,24 @@
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
 
                 // セッションIDを取得してWebSocketに渡す
-                const cookies = document.cookie.split(';');
-                let sessionId = null;
-                for (let cookie of cookies) {
-                    const [name, value] = cookie.trim().split('=');
-                    if (name === 'session_id') {
-                        sessionId = value;
-                        break;
+                function getSessionId() {
+                    const cookies = document.cookie.split(';');
+                    for (let cookie of cookies) {
+                        const [name, value] = cookie.trim().split('=');
+                        if (name === 'session_id') {
+                            return decodeURIComponent(value);
+                        }
                     }
+                    return null;
                 }
                 
+                const sessionId = getSessionId();
+                trace(`🔍 セッションID: ${sessionId}`, 'sys');
+                
                 if (!sessionId) {
-                    trace("❌ セッションIDが見つかりません", 'err');
+                    trace("❌ セッションIDが見つかりません。再ログインしてください。", 'err');
+                    // ログイン画面にリダイレクト
+                    window.location.reload();
                     return;
                 }
 
