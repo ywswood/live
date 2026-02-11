@@ -485,6 +485,44 @@
                 }
             }
             
+            // マイクの初期化
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        sampleRate: 16000
+                    }
+                });
+                
+                if (!processor) {
+                    const source = audioCtx.createMediaStreamSource(stream);
+                    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+                    
+                    processor.onaudioprocess = (e) => {
+                        if (!isRecording) return;
+                        const inputData = e.inputBuffer.getChannelData(0);
+                        const pcm16 = new Int16Array(inputData.length);
+                        for (let i = 0; i < inputData.length; i++) {
+                            pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+                        }
+                        
+                        if (ws && ws.readyState === 1) {
+                            ws.send(pcm16.buffer);
+                            pcmSentCount++;
+                        }
+                    };
+                    
+                    source.connect(processor);
+                    processor.connect(audioCtx.destination);
+                }
+                
+            } catch (err) {
+                trace(`🎤 マイクエラー: ${err.message}`, 'err');
+                return;
+            }
+            
             pcmSentCount = 0; isRecording = true;
             btn.classList.add('recording'); txt.innerText = 'ON';
             trace("🎤 MIC ON", 'sys');
