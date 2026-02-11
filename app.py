@@ -316,7 +316,7 @@ async def simple_auth(request: Request):
         }
         
         response = JSONResponse({"success": True})
-        response.set_cookie("session_id", session_id, httponly=True)
+        response.set_cookie("session_id", session_id, httponly=False, samesite='lax')
         return response
         
     except Exception as e:
