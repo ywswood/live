@@ -461,7 +461,7 @@ async def auth_login():
     sessions[session_id] = {"state": state}
     
     response = RedirectResponse(authorization_url)
-    response.set_cookie("session_id", session_id, httponly=True)
+    response.set_cookie("session_id", session_id, httponly=False, samesite='lax')
     return response
 
 @app.get("/oauth2callback")
