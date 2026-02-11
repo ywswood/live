@@ -8,40 +8,40 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#dc2626">
 </head>
-<body class="bg-black text-white min-h-screen">
-    <header class="bg-red-600 border-b border-red-800">
+<body class="bg-white text-black min-h-screen">
+    <header class="bg-black border-b border-red-600">
         <div class="container mx-auto px-4 py-3">
-            <h1 class="text-lg font-bold">woodstock</h1>
-            <div class="text-xs text-red-200">v1.2.9-PWA - Mobile Fixed</div>
+            <h1 class="text-lg font-bold text-white">woodstock</h1>
+            <div class="text-xs text-gray-300">v1.2.9-PWA - Mobile Fixed</div>
         </div>
     </header>
     
     <main class="container mx-auto px-4 py-8">
         <div class="max-w-2xl mx-auto">
-            <div class="bg-gray-900 border border-red-800 rounded-lg p-6 mb-6">
+            <div class="bg-white border border-red-600 rounded-lg p-6 mb-6">
                 <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-lg font-semibold text-red-400">Voice Assistant</h2>
-                    <button id="logout-btn" class="text-sm text-gray-400 hover:text-red-400">ログアウト</button>
+                    <h2 class="text-lg font-semibold text-black">Voice Assistant</h2>
+                    <button id="logout-btn" class="text-sm text-gray-600 hover:text-red-600">ログアウト</button>
                 </div>
                 
                 <div class="mb-6">
-                    <button id="mic-btn" class="w-full bg-red-600 hover:bg-red-700 border border-red-800 rounded-lg p-4 transition-colors">
+                    <button id="mic-btn" class="w-full bg-red-600 hover:bg-red-700 border border-red-600 rounded-lg p-4 transition-colors">
                         <div class="text-center">
                             <div class="text-2xl mb-2">🎤</div>
-                            <div id="mic-status" class="text-sm">READY</div>
+                            <div id="mic-status" class="text-sm text-white">READY</div>
                         </div>
                     </button>
                 </div>
                 
-                <div class="bg-black border border-red-900 rounded p-4">
-                    <div class="text-sm text-red-400 mb-2">Microphone Level</div>
-                    <div id="mic-level" class="text-lg font-mono text-red-300">MIC LVL: 0%</div>
+                <div class="bg-gray-100 border border-red-600 rounded p-4">
+                    <div class="text-sm text-black mb-2">Microphone Level</div>
+                    <div id="mic-level" class="text-lg font-mono text-black">MIC LVL: 0%</div>
                 </div>
             </div>
             
-            <div class="bg-gray-900 border border-red-800 rounded-lg p-6">
-                <h3 class="text-lg font-semibold text-red-400 mb-4">System Log</h3>
-                <div id="trace-log" class="bg-black border border-red-900 rounded p-4 h-64 overflow-y-auto font-mono text-xs"></div>
+            <div class="bg-white border border-red-600 rounded-lg p-6">
+                <h3 class="text-lg font-semibold text-black mb-4">System Log</h3>
+                <div id="trace-log" class="bg-gray-100 border border-red-600 rounded p-4 h-64 overflow-y-auto font-mono text-xs text-black"></div>
             </div>
         </div>
     </main>
@@ -62,22 +62,22 @@
                 if (!auth.authenticated) {
                     // 社内ツール用：簡易ログイン画面
                     document.body.innerHTML = `
-                        <div class="h-screen flex flex-col items-center justify-center bg-black text-white">
+                        <div class="h-screen flex flex-col items-center justify-center bg-white text-black">
                             <div class="text-center">
-                                <h1 class="text-3xl font-bold mb-2 text-red-500">woodstock</h1>
-                                <div class="text-xs text-red-300 mb-6">v1.2.9-PWA - Mobile Fixed</div>
+                                <h1 class="text-3xl font-bold mb-2 text-black">woodstock</h1>
+                                <div class="text-xs text-gray-600 mb-6">v1.2.9-PWA - Mobile Fixed</div>
                                 <p class="mb-6">社内ツール用ログイン</p>
-                                <div class="bg-gray-900 border border-red-800 rounded-lg p-6 mb-4">
+                                <div class="bg-white border border-red-600 rounded-lg p-6 mb-4">
                                     <input type="email" id="email-input" placeholder="woodstock.co.jpメールアドレス" 
-                                           class="w-full px-4 py-2 rounded bg-black border border-red-900 text-white mb-4">
+                                           class="w-full px-4 py-2 rounded bg-white border border-red-600 text-black mb-4">
                                     <input type="password" id="password-input" placeholder="パスワード" 
-                                           class="w-full px-4 py-2 rounded bg-black border border-red-900 text-white mb-4">
+                                           class="w-full px-4 py-2 rounded bg-white border border-red-600 text-black mb-4">
                                     <button onclick="simpleLogin()" 
-                                            class="w-full bg-red-600 hover:bg-red-700 border border-red-800 px-6 py-3 rounded-lg">
+                                            class="w-full bg-red-600 hover:bg-red-700 border border-red-600 px-6 py-3 rounded-lg text-white">
                                         ログイン
                                     </button>
                                 </div>
-                                <div class="text-sm text-gray-400">
+                                <div class="text-sm text-gray-600">
                                     <!-- Google認証は現在メンテナンス中です -->
                                 </div>
                             </div>
@@ -137,7 +137,7 @@
             traceEl.scrollTop = traceEl.scrollHeight;
         }
 
-        let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0;
+        let ws, audioCtx, processor, isRecording = false, nextStartTime = 0, pcmSentCount = 0, isPlaying = false, audioSources = [];
 
         async function connectGemini() {
             const MODEL_NAME = "models/gemini-2.5-flash-native-audio-preview-12-2025";
@@ -342,11 +342,28 @@
                 const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // 24kHz stream
                 audioBuf.getChannelData(0).set(floats);
                 const source = audioCtx.createBufferSource();
-                source.buffer = audioBuf; source.connect(audioCtx.destination);
+                source.buffer = audioBuf; 
+                source.connect(audioCtx.destination);
 
                 const now = audioCtx.currentTime;
                 if (nextStartTime < now) nextStartTime = now;
                 source.start(nextStartTime);
+                
+                // 割り込み対応：音源を追跡
+                audioSources.push(source);
+                isPlaying = true;
+                
+                source.onended = () => {
+                    // 再生終了時に配列から削除
+                    const index = audioSources.indexOf(source);
+                    if (index > -1) {
+                        audioSources.splice(index, 1);
+                    }
+                    if (audioSources.length === 0) {
+                        isPlaying = false;
+                    }
+                };
+                
                 nextStartTime += audioBuf.duration;
             } catch (e) { trace(`BIN_PLAY_ERR: ${e.message}`, 'err'); }
         }
@@ -360,6 +377,22 @@
         async function start() {
             if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
             if (!ws || ws.readyState !== 1) await connectGemini();
+            
+            // 割り込み機能：AIが喋っている場合は停止
+            if (isPlaying && audioSources.length > 0) {
+                trace("🔇 AI音声を停止して割り込み録音", 'sys');
+                audioSources.forEach(source => {
+                    try {
+                        source.stop();
+                    } catch (e) {
+                        // すでに停止している場合がある
+                    }
+                });
+                audioSources = [];
+                isPlaying = false;
+                nextStartTime = audioCtx.currentTime;
+            }
+            
             pcmSentCount = 0; isRecording = true;
             btn.classList.add('recording'); txt.innerText = 'ON';
             trace("🎤 MIC ON", 'sys');
