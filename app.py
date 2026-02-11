@@ -33,28 +33,13 @@ TOKEN_JSON_CONTENT = os.getenv("GOOGLE_TOKEN_JSON")
 
 def get_gemini_config():
     """APIキーとモデル名を確定する"""
-    print(f"🔍 config取得試行: FIXED_API_KEY={'あり' if FIXED_API_KEY else 'なし'}, BANK_URL={'あり' if BANK_URL else 'なし'}")
-    if FIXED_API_KEY:
-        print("✅ 固定APIキーを使用します")
-        return FIXED_API_KEY, "gemini-2.0-flash-exp"
-    
-    if not BANK_URL:
-        print("❌ BANK_URL が設定されていません")
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("❌ GEMINI_API_KEYが設定されていません")
         return None, None
-
-    params = {'pass': BANK_PASS, 'project': BANK_PROJECT}
-    try:
-        print(f"📡 API Bank にリクエスト中... URL: {BANK_URL}")
-        response = requests.get(BANK_URL, params=params, timeout=10)
-        data = response.json()
-        if data.get('status') == 'success':
-            print(f"✅ API Bank 取得成功: {data['model_name']}")
-            return data['api_key'], data['model_name']
-        else:
-            print(f"❌ API Bank 取得失敗: {data.get('message', 'Unknown error')}")
-    except Exception as e:
-        print(f"❌ API Bank 取得エラー: {e}")
-    return None, None
+    
+    # 成功していたモデル名を使用
+    return api_key, "gemini-2.0-flash-exp"
 
 def report_api_error(api_key):
     """API エラーを API Bank に報告する"""
