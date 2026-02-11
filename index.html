@@ -7,6 +7,12 @@
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
     <title>Voice Secretary v1.2.8 - Binary Support</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#00f2ea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Voice Secretary">
+    <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxOTIiIGhlaWdodD0iMTkyIiByeD0iMjQiIGZpbGw9IiMwMDAxMSIvPgo8Y2lyY2xlIGN4PSI5NiIgY3k9Ijk2IiByPSI3NCIgZmlsbD0idXJsKCNncmFkKSIvPgo8Y2lyY2xlIGN4PSI5NiIgY3k9Ijk2IiByPSI3MCIgZmlsbD0iIzAwMTEiLz4KPGRlZnM+CjxsaW5lYXJHcmFkaWVudCBpZD0iZ3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMTkyIiB5Mj0iMTkyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CjxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmZjAwNTAiLz4KPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMDBmMmVhIi8+CjwvbGluZWFyR3JhZGllbnQ+CjwvZGVmcz4KPHN2Zz4=">
     <style>
         :root {
             --cyan: #00f2ea;
@@ -347,19 +353,118 @@
                 ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
                 trace("SENT: audio_stream_end", 'send');
             }
-        }
 
-        btn.onmousedown = start; btn.onmouseup = stop;
-        btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            trace("🎤 MIC ACCESS OK", 'sys');
+            const source = audioCtx.createMediaStreamSource(stream);
+            processor = audioCtx.createScriptProcessor(2048, 1, 1);
+            source.connect(processor); processor.connect(audioCtx.destination);
 
-        // ページ読み込み時に認証チェック
-        window.addEventListener('load', async () => {
-            const isAuthenticated = await checkAuth();
-            if (isAuthenticated) {
-                trace("v1.2.8 Hybrid Protocol Loaded.");
+            processor.onaudioprocess = (e) => {
+                const input = e.inputBuffer.getChannelData(0);
+                let p = 0; for (let v of input) if (Math.abs(v) > p) p = Math.abs(v);
+                micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
+
+                if (!isRecording || !ws || ws.readyState !== 1) return;
+                const pcm16 = new Int16Array(input.length);
+                for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
+
+                const packet = {
+                    realtime_input: {
+                        media_chunks: [{
+                            data: btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer))),
+                            mime_type: "audio/pcm;rate=16000"
+                        }]
+                    }
+                };
+                ws.send(JSON.stringify(packet));
+                pcmSentCount++;
+            };
+
+        } catch (err) { trace(`BOOT_ERR: ${err.message}`, 'err'); }
+    }
+
+    function handleJSON(data) {
+        if (data.setupComplete || data.setup_complete) trace("⭐ setupComplete received!", 'important');
+        if (data.error) trace(`🚨 SERVER_ERROR: ${JSON.stringify(data.error)}`, 'err');
+
+        const sc = data.serverContent || data.server_content;
+        if (sc) {
+            const turn = sc.modelTurn || sc.model_turn;
+            if (turn?.parts?.[0]) {
+                const part = turn.parts[0];
+                if (part.inlineData || part.inline_data) {
+                    const audioB64 = (part.inlineData || part.inline_data).data;
+                    trace(`🔊 AUDIO_JSON RECEIVED (${audioB64.length} chars)`, 'important');
+                    playRawPCM_Base64(audioB64);
+                }
             }
-        });
-    </script>
+        }
+    }
+
+    function playRawBinaryPCM(buffer) {
+        try {
+            const pcm16 = new Int16Array(buffer);
+            const floats = new Float32Array(pcm16.length);
+            for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
+
+            const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // 24kHz stream
+            audioBuf.getChannelData(0).set(floats);
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuf; source.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+            if (nextStartTime < now) nextStartTime = now;
+            source.start(nextStartTime);
+            nextStartTime += audioBuf.duration;
+        } catch (e) { trace(`BIN_PLAY_ERR: ${e.message}`, 'err'); }
+    }
+
+    function playRawPCM_Base64(base64) {
+        const binary = atob(base64), bytes = new Uint8Array(binary.length);
+        for (let i = 0; i <binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        playRawBinaryPCM(bytes.buffer);
+    }
+
+    async function start() {
+        if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
+        if (!ws || ws.readyState !== 1) await connectGemini();
+        pcmSentCount = 0; isRecording = true;
+        btn.classList.add('recording'); txt.innerText = 'ON';
+        trace("🎤 MIC ON", 'sys');
+    }
+
+    function stop() {
+        isRecording = false;
+        btn.classList.remove('recording'); txt.innerText = 'READY';
+        trace(`🎤 MIC OFF (Sent ${pcmSentCount})`, 'sys');
+        if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
+            trace("SENT: audio_stream_end", 'send');
+        }
+    }
+
+    btn.onmousedown = start; btn.onmouseup = stop;
+    btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
+
+    // ページ読み込み時に認証チェック
+    window.addEventListener('load', async () => {
+        const isAuthenticated = await checkAuth();
+        if (isAuthenticated) {
+            trace("v1.2.8 Hybrid Protocol Loaded.");
+            
+            // Service Worker登録
+            if ('serviceWorker' in navigator) {
+                try {
+                    const registration = await navigator.serviceWorker.register('/sw.js');
+                    console.log('Service Worker registered:', registration);
+                } catch (error) {
+                    console.log('Service Worker registration failed:', error);
+                }
+            }
+        }
+    });
+</script>
 </body>
 
 </html>
