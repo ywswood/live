@@ -236,7 +236,7 @@ def get_google_flow():
     else:
         raise FileNotFoundError("gcp_creds.jsonが見つかりません")
 
-def check_domain(email: str) -> bool:
+def is_woodstock_domain(email: str) -> bool:
     """ドメインがwoodstock.co.jpかチェック"""
     return email.endswith("@woodstock.co.jp")
 
@@ -248,7 +248,6 @@ async def auth_login():
         access_type='offline',
         include_granted_scopes='true'
     )
-    
     # stateをセッションに保存
     session_id = secrets.token_urlsafe(32)
     sessions[session_id] = {"state": state}
@@ -274,7 +273,7 @@ async def auth_callback(request: Request):
     
     # ドメインチェック
     email = userinfo.get('email', '')
-    if not check_domain(email):
+    if not is_woodstock_domain(email):
         raise HTTPException(status_code=403, detail="Access denied: @woodstock.co.jp domain required")
     
     # 認証成功、セッションを更新
