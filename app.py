@@ -645,9 +645,20 @@ async def websocket_endpoint(websocket: WebSocket):
                 print("🎤 クライアントからの音声送信ループ開始")
                 try:
                     while True:
-                        data = await websocket.receive_bytes()
-                        # print(f"📤 データ受信: {len(data)} bytes") # ログが多すぎるのでコメントアウト
-                        await session.send(input={"data": data, "mime_type": "audio/pcm"}, end_of_turn=True)
+                        # 音声データまたは制御メッセージを受信
+                        try:
+                            data = await websocket.receive_bytes()
+                        except:
+                            # テキストメッセージ（audio_stream_end）を受信
+                            msg = await websocket.receive_text()
+                            control = json.loads(msg)
+                            if control.get("realtime_input", {}).get("audio_stream_end"):
+                                await session.send(input={"data": b"", "mime_type": "audio/pcm"}, end_of_turn=True)
+                                print("📤 audio_stream_end を送信")
+                            continue
+                        
+                        # 音声データをGeminiに送信（end_of_turn=False）
+                        await session.send(input={"data": data, "mime_type": "audio/pcm"}, end_of_turn=False)
                 except Exception as e:
                     print(f"📡 クライアント送信停止: {e}")
 
