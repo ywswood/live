@@ -287,8 +287,24 @@ async def auth_callback(request: Request):
     if not session_id or session_id not in sessions:
         raise HTTPException(status_code=400, detail="Invalid session")
     
-    flow = get_google_flow()
-    flow.fetch_token(authorization_response=str(request.url))
+    # URLからstateとcodeを取得
+    from urllib.parse import parse_qs
+    query_params = parse_qs(str(request.url).split('?')[1] if '?' in str(request.url) else '')
+    state = query_params.get('state', [None])[0]
+    code = query_params.get('code', [None])[0]
+    
+    if not state or not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code or state")
+    
+    # state検証
+    if sessions[session_id].get("state") != state:
+        raise HTTPException(status_code=400, detail="Invalid state")
+    
+    try:
+        flow = get_google_flow()
+        flow.fetch_token(code=code)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Token exchange failed: {str(e)}")
     
     # ユーザー情報取得
     credentials = flow.credentials
