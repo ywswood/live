@@ -159,6 +159,34 @@
         // const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU"; // サーバー側に移動
         const traceEl = document.getElementById('fullTrace'), micEl = document.getElementById('micLevel'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
 
+        // 認証状態チェック
+        async function checkAuth() {
+            try {
+                const response = await fetch('/auth/me');
+                const auth = await response.json();
+                if (!auth.authenticated) {
+                    // 未ログインの場合はログイン画面を表示
+                    document.body.innerHTML = `
+                        <div class="h-screen flex flex-col items-center justify-center bg-gray-900 text-white">
+                            <div class="text-center">
+                                <h1 class="text-2xl font-bold mb-4">Voice Secretary</h1>
+                                <p class="mb-6">woodstock.co.jpドメインのアカウントでログインしてください</p>
+                                <a href="/auth/login" class="bg-blue-500 hover:bg-blue-600 px-6 py-3 rounded-lg inline-block">
+                                    Googleでログイン
+                                </a>
+                            </div>
+                        </div>
+                    `;
+                    return false;
+                }
+                console.log('ログイン済み:', auth.email);
+                return true;
+            } catch (error) {
+                console.error('認証チェックエラー:', error);
+                return false;
+            }
+        }
+
         function trace(msg, type = '') {
             if (type === 'audio' || type === 'recv' || type === 'send') return; // 高頻度ログをスキップ
             const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
@@ -324,7 +352,13 @@
         btn.onmousedown = start; btn.onmouseup = stop;
         btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-        trace("v1.2.8 Hybrid Protocol Loaded.");
+        // ページ読み込み時に認証チェック
+        window.addEventListener('load', async () => {
+            const isAuthenticated = await checkAuth();
+            if (isAuthenticated) {
+                trace("v1.2.8 Hybrid Protocol Loaded.");
+            }
+        });
     </script>
 </body>
 

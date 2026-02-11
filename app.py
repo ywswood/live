@@ -3,16 +3,20 @@ import asyncio
 import json
 import base64
 import requests
+import secrets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GoogleRequest
+from google_auth_oauthlib.flow import Flow
 from email.mime.text import MIMEText
 #from dotenv import load_dotenv
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 # ================================================
 # 1. 環境設定
@@ -77,12 +81,32 @@ def get_google_creds():
     else:
         raise FileNotFoundError("Google API の認証情報が見つかりません。")
 
+def get_user_credentials(request: Request):
+    """現在のユーザーのGoogle認証情報を取得"""
+    session_id = request.cookies.get("session_id")
+    if not session_id or session_id not in sessions:
+        return None
+    
+    session = sessions[session_id]
+    if not session.get("authenticated"):
+        return None
+    
+    return dict_to_credentials(session["credentials"])
+
 # --- Drive 検索 ---
-async def search_drive_files(query: str):
+async def search_drive_files(query: str, request: Request = None):
     """Google Drive 内のファイルを検索します。"""
     print(f"🔍 Drive検索開始: {query}")
     try:
-        service = build('drive', 'v3', credentials=get_google_creds())
+        # 認証情報を取得
+        if request:
+            creds = get_user_credentials(request)
+            if not creds:
+                return "Drive検索にはログインが必要です。"
+        else:
+            creds = get_google_creds()
+        
+        service = build('drive', 'v3', credentials=creds)
         q = f"name contains '{query}' and trashed = false"
         if TARGET_DRIVE_FOLDER_ID:
             q += f" and '{TARGET_DRIVE_FOLDER_ID}' in parents"
@@ -181,7 +205,152 @@ async def add_task(title: str):
     except Exception as e: return f"タスク追加失敗: {str(e)}"
 
 # ================================================
-# 3. FastAPI & WebSocket
+# 3. Google OAuth2 認証
+# ================================================
+
+# セッション情報を保存（本番環境はRedisなどを使用）
+sessions = {}
+
+def get_google_flow():
+    """Google OAuth2フローを初期化"""
+    if os.path.exists("gcp_creds.json"):
+        with open("gcp_creds.json", "r") as f:
+            client_config = json.load(f)
+        
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=[
+                "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/userinfo.profile",
+                "https://www.googleapis.com/auth/drive",
+                "https://www.googleapis.com/auth/gmail.send",
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/calendar",
+                "https://www.googleapis.com/auth/tasks"
+            ]
+        )
+        
+        # コールバックURLを設定
+        flow.redirect_uri = "http://localhost:8080/oauth2callback"
+        return flow
+    else:
+        raise FileNotFoundError("gcp_creds.jsonが見つかりません")
+
+def check_domain(email: str) -> bool:
+    """ドメインがwoodstock.co.jpかチェック"""
+    return email.endswith("@woodstock.co.jp")
+
+@app.get("/auth/login")
+async def auth_login():
+    """Google認証開始"""
+    flow = get_google_flow()
+    authorization_url, state = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true'
+    )
+    
+    # stateをセッションに保存
+    session_id = secrets.token_urlsafe(32)
+    sessions[session_id] = {"state": state}
+    
+    response = RedirectResponse(authorization_url)
+    response.set_cookie("session_id", session_id, httponly=True)
+    return response
+
+@app.get("/oauth2callback")
+async def auth_callback(request: Request):
+    """OAuth2コールバック処理"""
+    session_id = request.cookies.get("session_id")
+    if not session_id or session_id not in sessions:
+        raise HTTPException(status_code=400, detail="Invalid session")
+    
+    flow = get_google_flow()
+    flow.fetch_token(authorization_response=str(request.url))
+    
+    # ユーザー情報取得
+    credentials = flow.credentials
+    userinfo_service = build('oauth2', 'v2', credentials=credentials)
+    userinfo = userinfo_service.userinfo().get().execute()
+    
+    # ドメインチェック
+    email = userinfo.get('email', '')
+    if not check_domain(email):
+        raise HTTPException(status_code=403, detail="Access denied: @woodstock.co.jp domain required")
+    
+    # 認証成功、セッションを更新
+    sessions[session_id].update({
+        "authenticated": True,
+        "email": email,
+        "name": userinfo.get('name', ''),
+        "credentials": credentials_to_dict(credentials)
+    })
+    
+    return RedirectResponse("/")
+
+@app.get("/auth/logout")
+async def auth_logout(request: Request):
+    """ログアウト"""
+    session_id = request.cookies.get("session_id")
+    if session_id and session_id in sessions:
+        del sessions[session_id]
+    
+    response = RedirectResponse("/")
+    response.delete_cookie("session_id")
+    return response
+
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    """現在のユーザー情報を返す"""
+    session_id = request.cookies.get("session_id")
+    if not session_id or session_id not in sessions:
+        return {"authenticated": False}
+    
+    session = sessions[session_id]
+    if not session.get("authenticated"):
+        return {"authenticated": False}
+    
+    return {
+        "authenticated": True,
+        "email": session.get("email"),
+        "name": session.get("name")
+    }
+
+def credentials_to_dict(credentials):
+    """Credentialsオブジェクトを辞書に変換"""
+    return {
+        'token': credentials.token,
+        'refresh_token': credentials.refresh_token,
+        'token_uri': credentials.token_uri,
+        'client_id': credentials.client_id,
+        'client_secret': credentials.client_secret,
+        'scopes': credentials.scopes
+    }
+
+def dict_to_credentials(creds_dict):
+    """辞書をCredentialsオブジェクトに変換"""
+    return Credentials(
+        token=creds_dict['token'],
+        refresh_token=creds_dict['refresh_token'],
+        token_uri=creds_dict['token_uri'],
+        client_id=creds_dict['client_id'],
+        client_secret=creds_dict['client_secret'],
+        scopes=creds_dict['scopes']
+    )
+
+def get_user_credentials(request: Request):
+    """現在のユーザーのGoogle認証情報を取得"""
+    session_id = request.cookies.get("session_id")
+    if not session_id or session_id not in sessions:
+        return None
+    
+    session = sessions[session_id]
+    if not session.get("authenticated"):
+        return None
+    
+    return dict_to_credentials(session["credentials"])
+
+# ================================================
+# 4. FastAPI & WebSocket
 # ================================================
 app = FastAPI()
 
@@ -307,5 +476,5 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
