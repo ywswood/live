@@ -229,7 +229,14 @@ def get_google_flow():
         )
         
         # コールバックURLを設定
-        flow.redirect_uri = "http://localhost:8080/oauth2callback"
+        # 環境に応じてコールバックURLを動的に設定
+        render_url = os.getenv("RENDER_EXTERNAL_URL")
+        if render_url:
+            # Render環境
+            flow.redirect_uri = f"{render_url}/oauth2callback"
+        else:
+            # ローカル環境
+            flow.redirect_uri = "http://localhost:8080/oauth2callback"
         return flow
     else:
         raise FileNotFoundError("gcp_creds.jsonが見つかりません")
