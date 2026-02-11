@@ -3,27 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini 2.5 Native Audio Assistant</title>
+    <title>woodstock</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#1f2937">
+    <meta name="theme-color" content="#dc2626">
 </head>
-<body class="bg-gray-900 text-white min-h-screen">
-    <header>
-        <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span class="text-[9px] text-zinc-600 block">v1.2.9-PWA (2025-02-11) - Mobile Fixed</span></h1>
-        <div class="text-[8px] text-zinc-500 mt-1">PWA Ready • Authenticated</div>
+<body class="bg-black text-white min-h-screen">
+    <header class="bg-red-600 border-b border-red-800">
+        <div class="container mx-auto px-4 py-3">
+            <h1 class="text-lg font-bold">woodstock</h1>
+            <div class="text-xs text-red-200">v1.2.9-PWA - Mobile Fixed</div>
+        </div>
     </header>
     
     <main class="container mx-auto px-4 py-8">
         <div class="max-w-2xl mx-auto">
-            <div class="bg-gray-800 rounded-lg p-6 mb-6">
+            <div class="bg-gray-900 border border-red-800 rounded-lg p-6 mb-6">
                 <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-lg font-semibold">Voice Assistant</h2>
-                    <button id="logout-btn" class="text-sm text-gray-400 hover:text-white">ログアウト</button>
+                    <h2 class="text-lg font-semibold text-red-400">Voice Assistant</h2>
+                    <button id="logout-btn" class="text-sm text-gray-400 hover:text-red-400">ログアウト</button>
                 </div>
                 
                 <div class="mb-6">
-                    <button id="mic-btn" class="w-full bg-blue-600 hover:bg-blue-700 rounded-lg p-4 transition-colors">
+                    <button id="mic-btn" class="w-full bg-red-600 hover:bg-red-700 border border-red-800 rounded-lg p-4 transition-colors">
                         <div class="text-center">
                             <div class="text-2xl mb-2">🎤</div>
                             <div id="mic-status" class="text-sm">READY</div>
@@ -31,15 +33,15 @@
                     </button>
                 </div>
                 
-                <div class="bg-gray-700 rounded p-4">
-                    <div class="text-sm text-gray-400 mb-2">Microphone Level</div>
-                    <div id="mic-level" class="text-lg font-mono">MIC LVL: 0%</div>
+                <div class="bg-black border border-red-900 rounded p-4">
+                    <div class="text-sm text-red-400 mb-2">Microphone Level</div>
+                    <div id="mic-level" class="text-lg font-mono text-red-300">MIC LVL: 0%</div>
                 </div>
             </div>
             
-            <div class="bg-gray-800 rounded-lg p-6">
-                <h3 class="text-lg font-semibold mb-4">System Log</h3>
-                <div id="trace-log" class="bg-black rounded p-4 h-64 overflow-y-auto font-mono text-xs"></div>
+            <div class="bg-gray-900 border border-red-800 rounded-lg p-6">
+                <h3 class="text-lg font-semibold text-red-400 mb-4">System Log</h3>
+                <div id="trace-log" class="bg-black border border-red-900 rounded p-4 h-64 overflow-y-auto font-mono text-xs"></div>
             </div>
         </div>
     </main>
@@ -60,17 +62,18 @@
                 if (!auth.authenticated) {
                     // 社内ツール用：簡易ログイン画面
                     document.body.innerHTML = `
-                        <div class="h-screen flex flex-col items-center justify-center bg-gray-900 text-white">
+                        <div class="h-screen flex flex-col items-center justify-center bg-black text-white">
                             <div class="text-center">
-                                <h1 class="text-2xl font-bold mb-4">Voice Secretary</h1>
+                                <h1 class="text-3xl font-bold mb-2 text-red-500">woodstock</h1>
+                                <div class="text-xs text-red-300 mb-6">v1.2.9-PWA - Mobile Fixed</div>
                                 <p class="mb-6">社内ツール用ログイン</p>
-                                <div class="bg-gray-800 rounded-lg p-6 mb-4">
+                                <div class="bg-gray-900 border border-red-800 rounded-lg p-6 mb-4">
                                     <input type="email" id="email-input" placeholder="woodstock.co.jpメールアドレス" 
-                                           class="w-full px-4 py-2 rounded bg-gray-700 text-white mb-4">
+                                           class="w-full px-4 py-2 rounded bg-black border border-red-900 text-white mb-4">
                                     <input type="password" id="password-input" placeholder="パスワード" 
-                                           class="w-full px-4 py-2 rounded bg-gray-700 text-white mb-4">
+                                           class="w-full px-4 py-2 rounded bg-black border border-red-900 text-white mb-4">
                                     <button onclick="simpleLogin()" 
-                                            class="w-full bg-blue-500 hover:bg-blue-600 px-6 py-3 rounded-lg">
+                                            class="w-full bg-red-600 hover:bg-red-700 border border-red-800 px-6 py-3 rounded-lg">
                                         ログイン
                                     </button>
                                 </div>
