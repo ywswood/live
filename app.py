@@ -604,6 +604,7 @@ async def websocket_endpoint(websocket: WebSocket):
         "system_instruction": {
             "parts": [{"text": "あなたは日本語で話す秘書です。ユーザーがどんな言語で話しても、必ず日本語で応答してください。英語は絶対に使わないでください。ツールの結果もすべて日本語で説明してください。自然で丁寧な日本語でお願いします。"}]
         },
+        "response_modalities": ["TEXT"],  # まずTEXTでテスト
         "tools": [
             {"google_search": {}},
             {"function_declarations": [
@@ -625,19 +626,22 @@ async def websocket_endpoint(websocket: WebSocket):
                 try:
                     while True:
                         data = await websocket.receive_bytes()
-                        # print(f"📤 データ受信: {len(data)} bytes") # ログが多すぎるのでコメントアウト
-                        await session.send(input={"data": data, "mime_type": "audio/pcm"}, end_of_turn=True)
+                        # ドキュメント通りに send_realtime_input を使用
+                        from google.genai import types
+                        await session.send_realtime_input(
+                            audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000")
+                        )
                 except Exception as e:
                     print(f"📡 クライアント送信停止: {e}")
 
             async def receive_from_gemini():
                 try:
                     async for message in session.receive():
-                        # 音声の返却
-                        if message.server_content and message.server_content.model_turn:
-                            for part in message.server_content.model_turn.parts:
-                                if part.inline_data:
-                                    await websocket.send_bytes(part.inline_data.data)
+                        # TEXT応答を処理
+                        if message.text is not None:
+                            print(f"🤖 AI応答: {message.text}")
+                            # テキストをWebSocketで送信
+                            await websocket.send_text(message.text)
                         
                         # ツール実行要求の処理
                         if message.tool_call:
@@ -655,15 +659,13 @@ async def websocket_endpoint(websocket: WebSocket):
                                 elif call.name == "add_task": res = await add_task(call.args["title"], mock_request)
                                 
                                 if res:
-                                    # print(f"🔧 ツール結果送信: {call.name}")
-                                    await session.send(input=types.LiveClientToolResponse(
-                                        function_responses=[types.LiveClientFunctionResponse(
-                                            name=call.name, id=call.id, response={"result": res}
-                                        )]
-                                    ))
+                                    print(f"🔧 ツール結果送信: {call.name}")
+                                    await session.send_tool_response(function_responses=[types.LiveClientToolResponse(
+                                        name=call.name, id=call.id, response={"result": res}
+                                    )])
                         
                         if message.server_content and message.server_content.turn_complete:
-                            pass # print("✅ Gemini のターンが完了しました")
+                            print("✅ Gemini のターンが完了しました")
                 except Exception as e:
                     print(f"❌ Gemini 通信エラー: {e}")
                     print("💡 ヒント: APIキーの制限（ウェブサイト制限）が有効なままになっていませんか？ Pythonから使う場合は制限を外す必要があります。")
