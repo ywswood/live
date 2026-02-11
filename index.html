@@ -1,178 +1,63 @@
 <!DOCTYPE html>
 <html lang="ja">
-
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no text-align:center">
-    <title>Voice Secretary v1.2.8 - Binary Support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini 2.5 Native Audio Assistant</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#00f2ea">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Voice Secretary">
-    <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxOTIiIGhlaWdodD0iMTkyIiByeD0iMjQiIGZpbGw9IiMwMDAxMSIvPgo8Y2lyY2xlIGN4PSI5NiIgY3k9Ijk2IiByPSI3NCIgZmlsbD0idXJsKCNncmFkKSIvPgo8Y2lyY2xlIGN4PSI5NiIgY3k9Ijk2IiByPSI3MCIgZmlsbD0iIzAwMTEiLz4KPGRlZnM+CjxsaW5lYXJHcmFkaWVudCBpZD0iZ3JhZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMTkyIiB5Mj0iMTkyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CjxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmZjAwNTAiLz4KPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMDBmMmVhIi8+CjwvbGluZWFyR3JhZGllbnQ+CjwvZGVmcz4KPHN2Zz4=">
-    <style>
-        :root {
-            --cyan: #00f2ea;
-            --pink: #ff0050;
-            --grad: linear-gradient(135deg, #ff0050, #00f2ea);
-        }
-
-        body {
-            background: #001;
-            color: #fff;
-            overflow: hidden;
-            font-family: 'Courier New', Courier, monospace;
-        }
-
-        .ring {
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            background: var(--grad);
-            mask: radial-gradient(transparent 74px, #000 76px);
-            -webkit-mask: radial-gradient(transparent 74px, #000 76px);
-            animation: spin 15s linear infinite;
-        }
-
-        .recording .ring {
-            animation: pulse 0.7s infinite;
-            mask: none;
-            -webkit-mask: none;
-            background: var(--pink);
-            opacity: 0.5;
-            transform: scale(1.2);
-        }
-
-        @keyframes spin {
-            from {
-                transform: rotate(0deg);
-            }
-
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                transform: scale(1.05);
-            }
-
-            50% {
-                transform: scale(1.2);
-            }
-        }
-
-        #fullTrace {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            height: 20vh;
-            background: #000;
-            border-top: 2px solid #555;
-            font-size: 8px;
-            padding: 10px;
-            overflow-y: scroll;
-            z-index: 1000;
-            color: #0d0;
-            line-height: 1.2;
-            word-break: break-all;
-        }
-
-        .trace-err {
-            color: #fff;
-            background: #d33;
-            font-weight: bold;
-        }
-
-        .trace-sys {
-            color: #888;
-            border-left: 2px solid #888;
-            padding-left: 4px;
-        }
-
-        .trace-send {
-            color: #0af;
-            border-left: 2px solid #0af;
-            padding-left: 4px;
-        }
-
-        .trace-recv {
-            color: #f0f;
-            border-left: 2px solid #f0f;
-            padding-left: 4px;
-            border-bottom: 1px dotted #333;
-        }
-
-        .trace-audio {
-            color: #000;
-            background: #0df;
-            font-weight: bold;
-        }
-
-        .trace-important {
-            color: #000;
-            background: #0f0;
-            font-weight: bold;
-        }
-
-        #micLevel {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            font-size: 10px;
-            color: #0f0;
-            z-index: 2000;
-            font-weight: bold;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 4px;
-            border-radius: 4px;
-        }
-    </style>
+    <meta name="theme-color" content="#1f2937">
 </head>
-
-<body class="h-screen flex flex-col items-center">
-    <div id="micLevel">MIC LVL: 0%</div>
-
-    <div class="flex-1 w-full max-w-md flex flex-col items-center justify-between py-6 px-8 text-center">
-        <header>
-            <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span
-                    class="text-[9px] text-zinc-600 block">v1.2.8-PWA (2025-02-11)</span></h1>
-            <div class="text-[8px] text-zinc-500 mt-1">PWA Ready • Authenticated</div>
-        </header>
-        <div class="main flex-1 flex items-center justify-center">
-            <div id="btn" class="relative w-36 h-36 cursor-pointer active:scale-95 transition-transform">
-                <div class="ring"></div>
-                <div class="fill absolute inset-3 bg-zinc-950 rounded-full flex flex-col items-center justify-center">
-                    <div id="recText" class="text-[10px] font-bold text-zinc-600 tracking-widest uppercase">READY</div>
+<body class="bg-gray-900 text-white min-h-screen">
+    <header>
+        <h1 class="text-xs font-bold italic tracking-tighter uppercase">Gemini 2.5 Native <span class="text-[9px] text-zinc-600 block">v1.2.8-PWA (2025-02-11)</span></h1>
+        <div class="text-[8px] text-zinc-500 mt-1">PWA Ready • Authenticated</div>
+    </header>
+    
+    <main class="container mx-auto px-4 py-8">
+        <div class="max-w-2xl mx-auto">
+            <div class="bg-gray-800 rounded-lg p-6 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold">Voice Assistant</h2>
+                    <button id="logout-btn" class="text-sm text-gray-400 hover:text-white">ログアウト</button>
+                </div>
+                
+                <div class="mb-6">
+                    <button id="mic-btn" class="w-full bg-blue-600 hover:bg-blue-700 rounded-lg p-4 transition-colors">
+                        <div class="text-center">
+                            <div class="text-2xl mb-2">🎤</div>
+                            <div id="mic-status" class="text-sm">READY</div>
+                        </div>
+                    </button>
+                </div>
+                
+                <div class="bg-gray-700 rounded p-4">
+                    <div class="text-sm text-gray-400 mb-2">Microphone Level</div>
+                    <div id="mic-level" class="text-lg font-mono">MIC LVL: 0%</div>
                 </div>
             </div>
+            
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-lg font-semibold mb-4">System Log</h3>
+                <div id="trace-log" class="bg-black rounded p-4 h-64 overflow-y-auto font-mono text-xs"></div>
+            </div>
         </div>
-        <div id="status" class="text-zinc-500 text-[8px] mb-2 font-mono uppercase">Reference 143 compliance</div>
-    </div>
-
-    <!-- Trace Logger -->
-    <div id="fullTrace">
-        <div class="trace-sys">--- V1.2.8 BINARY PROTOCOL DECODER ---</div>
-    </div>
+    </main>
 
     <script>
-        // const API_KEY = "AIzaSyA11HNJShWzJcEvfZh9JewKgzLUMSMSmpU"; // サーバー側に移動
-        const traceEl = document.getElementById('fullTrace'), micEl = document.getElementById('micLevel'), txt = document.getElementById('recText'), btn = document.getElementById('btn');
+        const btn = document.getElementById('mic-btn');
+        const txt = document.getElementById('mic-status');
+        const micEl = document.getElementById('mic-level');
+        const traceEl = document.getElementById('trace-log');
+        const logoutBtn = document.getElementById('logout-btn');
 
-        // 認証状態チェック
+        // 認証チェック
         async function checkAuth() {
             try {
                 const response = await fetch('/auth/me');
                 const auth = await response.json();
+                
                 if (!auth.authenticated) {
-                    // 未ログインの場合はログイン画面を表示
                     document.body.innerHTML = `
                         <div class="h-screen flex flex-col items-center justify-center bg-gray-900 text-white">
                             <div class="text-center">
@@ -392,118 +277,38 @@
                 ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
                 trace("SENT: audio_stream_end", 'send');
             }
+        }
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            trace("🎤 MIC ACCESS OK", 'sys');
-            const source = audioCtx.createMediaStreamSource(stream);
-            processor = audioCtx.createScriptProcessor(2048, 1, 1);
-            source.connect(processor); processor.connect(audioCtx.destination);
+        btn.onmousedown = start; btn.onmouseup = stop;
+        btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
 
-            processor.onaudioprocess = (e) => {
-                const input = e.inputBuffer.getChannelData(0);
-                let p = 0; for (let v of input) if (Math.abs(v) > p) p = Math.abs(v);
-                micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
+        // ログアウト処理
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await fetch('/auth/logout');
+                window.location.reload();
+            } catch (error) {
+                console.error('ログアウトエラー:', error);
+            }
+        });
 
-                if (!isRecording || !ws || ws.readyState !== 1) return;
-                const pcm16 = new Int16Array(input.length);
-                for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
-
-                const packet = {
-                    realtime_input: {
-                        media_chunks: [{
-                            data: btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer))),
-                            mime_type: "audio/pcm;rate=16000"
-                        }]
+        // ページ読み込み時に認証チェック
+        window.addEventListener('load', async () => {
+            const isAuthenticated = await checkAuth();
+            if (isAuthenticated) {
+                trace("v1.2.8 Hybrid Protocol Loaded.");
+                
+                // Service Worker登録
+                if ('serviceWorker' in navigator) {
+                    try {
+                        const registration = await navigator.serviceWorker.register('/sw.js');
+                        console.log('Service Worker registered:', registration);
+                    } catch (error) {
+                        console.log('Service Worker registration failed:', error);
                     }
-                };
-                ws.send(JSON.stringify(packet));
-                pcmSentCount++;
-            };
-
-        } catch (err) { trace(`BOOT_ERR: ${err.message}`, 'err'); }
-    }
-
-    function handleJSON(data) {
-        if (data.setupComplete || data.setup_complete) trace("⭐ setupComplete received!", 'important');
-        if (data.error) trace(`🚨 SERVER_ERROR: ${JSON.stringify(data.error)}`, 'err');
-
-        const sc = data.serverContent || data.server_content;
-        if (sc) {
-            const turn = sc.modelTurn || sc.model_turn;
-            if (turn?.parts?.[0]) {
-                const part = turn.parts[0];
-                if (part.inlineData || part.inline_data) {
-                    const audioB64 = (part.inlineData || part.inline_data).data;
-                    trace(`🔊 AUDIO_JSON RECEIVED (${audioB64.length} chars)`, 'important');
-                    playRawPCM_Base64(audioB64);
                 }
             }
-        }
-    }
-
-    function playRawBinaryPCM(buffer) {
-        try {
-            const pcm16 = new Int16Array(buffer);
-            const floats = new Float32Array(pcm16.length);
-            for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
-
-            const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // 24kHz stream
-            audioBuf.getChannelData(0).set(floats);
-            const source = audioCtx.createBufferSource();
-            source.buffer = audioBuf; source.connect(audioCtx.destination);
-
-            const now = audioCtx.currentTime;
-            if (nextStartTime < now) nextStartTime = now;
-            source.start(nextStartTime);
-            nextStartTime += audioBuf.duration;
-        } catch (e) { trace(`BIN_PLAY_ERR: ${e.message}`, 'err'); }
-    }
-
-    function playRawPCM_Base64(base64) {
-        const binary = atob(base64), bytes = new Uint8Array(binary.length);
-        for (let i = 0; i <binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        playRawBinaryPCM(bytes.buffer);
-    }
-
-    async function start() {
-        if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
-        if (!ws || ws.readyState !== 1) await connectGemini();
-        pcmSentCount = 0; isRecording = true;
-        btn.classList.add('recording'); txt.innerText = 'ON';
-        trace("🎤 MIC ON", 'sys');
-    }
-
-    function stop() {
-        isRecording = false;
-        btn.classList.remove('recording'); txt.innerText = 'READY';
-        trace(`🎤 MIC OFF (Sent ${pcmSentCount})`, 'sys');
-        if (ws && ws.readyState === 1) {
-            ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
-            trace("SENT: audio_stream_end", 'send');
-        }
-    }
-
-    btn.onmousedown = start; btn.onmouseup = stop;
-    btn.ontouchstart = (e) => { e.preventDefault(); start(); }; btn.ontouchend = stop;
-
-    // ページ読み込み時に認証チェック
-    window.addEventListener('load', async () => {
-        const isAuthenticated = await checkAuth();
-        if (isAuthenticated) {
-            trace("v1.2.8 Hybrid Protocol Loaded.");
-            
-            // Service Worker登録
-            if ('serviceWorker' in navigator) {
-                try {
-                    const registration = await navigator.serviceWorker.register('/sw.js');
-                    console.log('Service Worker registered:', registration);
-                } catch (error) {
-                    console.log('Service Worker registration failed:', error);
-                }
-            }
-        }
-    });
-</script>
+        });
+    </script>
 </body>
-
 </html>
