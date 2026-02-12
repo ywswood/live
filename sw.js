@@ -1,4 +1,4 @@
-const CACHE_NAME = 'voice-secretary-v1.5.7';
+const CACHE_NAME = 'voice-secretary-v1.5.8';
 const urlsToCache = [
   '/',
   '/index.html',

@@ -14,7 +14,7 @@
     <header class="bg-black border-b border-red-600">
         <div class="container mx-auto px-4 py-3">
             <h1 class="text-lg font-bold text-white">woodstock</h1>
-            <div class="text-xs text-gray-300">v1.5.7-log</div>
+            <div class="text-xs text-gray-300">v1.5.8-legacy</div>
         </div>
     </header>
 
@@ -52,180 +52,77 @@
     </main>
 
     <script>
-        const APP_VERSION = 'v1.5.7-log';
+        const APP_VERSION = 'v1.5.8-legacy';
         const btn = document.getElementById('mic-btn');
         const txt = document.getElementById('mic-status');
         const micEl = document.getElementById('mic-level');
         const traceEl = document.getElementById('trace-log');
         const logoutBtn = document.getElementById('logout-btn');
 
-        // 認証チェック
-        async function checkAuth() {
-            try {
-                trace("🔍 認証チェック開始", 'sys');
-                const response = await fetch('/auth/me');
-                const auth = await response.json();
-
-                if (!auth.authenticated) {
-                    trace("❌ 未認証：ログイン画面を表示", 'sys');
-                    document.body.innerHTML = `
-                        <div class="h-screen flex flex-col items-center justify-center bg-white text-black">
-                            <div class="bg-white border border-red-600 rounded-lg p-8 max-w-md w-full mx-4">
-                                <h1 class="text-2xl font-bold text-black mb-6 text-center">woodstock</h1>
-                                <div class="text-sm text-gray-600 mb-6 text-center">${APP_VERSION}</div>
-                                <form id="login-form" class="space-y-4">
-                                    <div>
-                                        <input type="email" id="email" placeholder="メールアドレス" required
-                                               class="w-full px-3 py-2 border border-red-600 rounded bg-white text-black">
-                                    </div>
-                                    <div>
-                                        <input type="password" id="password" placeholder="パスワード" required
-                                               class="w-full px-3 py-2 border border-red-600 rounded bg-white text-black">
-                                    </div>
-                                    <button type="submit" 
-                                            class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
-                                        ログイン
-                                    </button>
-                                </form>
-                                <div id="login-error" class="text-red-600 text-sm mt-4 text-center hidden"></div>
-                            </div>
-                        </div>
-                    `;
-                    document.getElementById('login-form').addEventListener('submit', async (e) => {
-                        e.preventDefault();
-                        const email = document.getElementById('email').value;
-                        const password = document.getElementById('password').value;
-                        const errorDiv = document.getElementById('login-error');
-                        try {
-                            const response = await fetch('/simple-auth', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ email, password })
-                            });
-                            if (response.ok) {
-                                window.location.reload();
-                            } else {
-                                const error = await response.json();
-                                errorDiv.textContent = error.detail || 'ログインに失敗しました';
-                                errorDiv.classList.remove('hidden');
-                            }
-                        } catch (err) {
-                            errorDiv.textContent = 'ログインエラー: ' + err.message;
-                            errorDiv.classList.remove('hidden');
-                        }
-                    });
-                    return false;
-                }
-
-                trace("✅ 認証済み", 'sys');
-                return true;
-
-            } catch (error) {
-                trace(`❌ 認証エラー: ${error.message}`, 'err');
-                return false;
-            }
-        }
-
-        function getSessionId() {
-            const cookies = document.cookie.split(';');
-            for (let cookie of cookies) {
-                const [name, value] = cookie.trim().split('=');
-                if (name === 'session_id') return decodeURIComponent(value);
-            }
-            return null;
-        }
-
         function trace(msg, type = '') {
-            if (type === 'audio' || type === 'send') return; // 高頻度ログをスキップ
+            if (type === 'audio') return;
             const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
             const div = document.createElement('div');
-            div.className = type ? 'trace-' + type : '';
             div.innerText = `[${time}] ${msg}`;
             traceEl.appendChild(div);
-            if (traceEl.childNodes.length > 100) traceEl.removeChild(traceEl.firstChild);
             traceEl.scrollTop = traceEl.scrollHeight;
         }
 
         // ================================================
-        // 音声コンテキスト（録音用・再生用を分離）
+        // 簡易ダウンサンプリング (for 16kHz)
         // ================================================
-        let ws, micCtx, playCtx, processor, isRecording = false;
-        let nextStartTime = 0, pcmSentCount = 0, isPlaying = false, audioSources = [];
-        let playbackCount = 0;
+        function downsampleBuffer(buffer, sampleRate, outSampleRate) {
+            if (outSampleRate >= sampleRate) return buffer;
+            if (sampleRate > outSampleRate) {
+                var ratio = sampleRate / outSampleRate;
+                var newLength = Math.round(buffer.length / ratio);
+                var result = new Float32Array(newLength);
+                var offsetResult = 0;
+                var offsetBuffer = 0;
+                while (offsetResult < result.length) {
+                    var nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+                    var accum = 0, count = 0;
+                    for (var i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+                        accum += buffer[i];
+                        count++;
+                    }
+                    result[offsetResult] = accum / count;
+                    offsetResult++;
+                    offsetBuffer = nextOffsetBuffer;
+                }
+                return result;
+            }
+            return buffer;
+        }
 
-        // 再生用AudioContext（24kHz出力用、デバイスデフォルトレート）
+        let ws, micCtx, playCtx, processor, isRecording = false;
+        let nextStartTime = 0;
+
+        // 再生用コンテキスト (24kHz)
         function ensurePlayContext() {
             if (!playCtx) {
                 playCtx = new (window.AudioContext || window.webkitAudioContext)();
-                trace(`🔊 再生用AudioCtx: ${playCtx.sampleRate}Hz`, 'sys');
             }
-            if (playCtx.state === 'suspended') {
-                playCtx.resume();
-            }
+            if (playCtx.state === 'suspended') playCtx.resume();
             return playCtx;
         }
 
-        // ================================================
-
-
-        // ================================================
-        // WebSocket接続
-        // ================================================
         async function connectGemini() {
-            trace(`INIT: ${APP_VERSION}`, 'sys');
             try {
-                let sessionId = getSessionId();
-                if (!sessionId) {
-                    trace("❌ セッションID不明", 'err');
-                    return;
-                }
-
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = `${protocol}//${window.location.host}/ws?session_id=${sessionId}`;
-                trace(`🔗 WebSocket接続中...`, 'sys');
-                ws = new WebSocket(wsUrl);
+                ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
                 ws.binaryType = 'arraybuffer';
 
-                ws.onopen = () => {
-                    trace("🔥 サーバー接続OK", 'sys');
-                };
-
-                ws.onclose = (ev) => {
-                    trace(`🔌 切断 [${ev.code}]`, 'err');
-                    ws = null;
-                };
-
-                ws.onerror = (e) => {
-                    trace("❌ 接続エラー", 'err');
-                };
-
+                ws.onopen = () => trace("🔥 サーバー接続OK");
+                ws.onclose = (ev) => trace(`🔌 切断 [${ev.code}]`);
                 ws.onmessage = (e) => {
                     if (e.data instanceof ArrayBuffer) {
-                        // バイナリデータ = Geminiからの音声
-                        const bytes = new Uint8Array(e.data);
-                        if (bytes.length > 0) {
-                            playbackCount++;
-                            if (playbackCount <= 3) {
-                                trace(`🔊 音声受信: ${bytes.length}bytes (#${playbackCount})`, 'sys');
-                            }
-                            playRawBinaryPCM(e.data);
-                        }
-                    } else {
-                        // テキストデータ = DEBUGメッセージ
-                        if (e.data.startsWith('DEBUG:')) {
-                            trace(`🔧 ${e.data}`, 'sys');
-                        }
+                        playRawBinaryPCM(e.data);
                     }
                 };
-
-            } catch (err) {
-                trace(`接続エラー: ${err.message}`, 'err');
-            }
+            } catch (err) { trace(`接続エラー: ${err.message}`); }
         }
 
-        // ================================================
-        // 音声再生（Geminiからの24kHz PCM）
-        // ================================================
         function playRawBinaryPCM(buffer) {
             try {
                 const ctx = ensurePlayContext();
@@ -235,7 +132,7 @@
                 const floats = new Float32Array(pcm16.length);
                 for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
 
-                // 24kHzのバッファを作成 → AudioContextが自動リサンプリング
+                // 24kHzバッファ作成
                 const audioBuf = ctx.createBuffer(1, floats.length, 24000);
                 audioBuf.getChannelData(0).set(floats);
                 const source = ctx.createBufferSource();
@@ -245,165 +142,91 @@
                 const now = ctx.currentTime;
                 if (nextStartTime < now) nextStartTime = now;
                 source.start(nextStartTime);
-
-                // 割り込み対応：音源を追跡
-                audioSources.push(source);
-                isPlaying = true;
-
-                source.onended = () => {
-                    const index = audioSources.indexOf(source);
-                    if (index > -1) audioSources.splice(index, 1);
-                    if (audioSources.length === 0) isPlaying = false;
-                };
-
                 nextStartTime += audioBuf.duration;
-            } catch (e) {
-                trace(`再生エラー: ${e.message}`, 'err');
-            }
+            } catch (e) { console.error(e); }
         }
 
-        // ================================================
-        // マイク操作
-        // ================================================
         async function start() {
-            // 即座にUI更新
             txt.innerText = '接続中...';
-
             try {
-                // ユーザージェスチャー内で再生用AudioContextを作成/resume（iOS必須）
-                ensurePlayContext();
+                ensurePlayContext(); // 再生用Resume
 
-                // 録音用AudioContext（デバイスデフォルトレート使用）
-                if (!micCtx) {
-                    micCtx = new (window.AudioContext || window.webkitAudioContext)();
-                    trace(`🎤 録音用AudioCtx: ${micCtx.sampleRate}Hz`, 'sys');
-                }
+                if (!ws || ws.readyState !== 1) await connectGemini();
+
+                if (!micCtx) micCtx = new (window.AudioContext || window.webkitAudioContext)();
                 if (micCtx.state === 'suspended') await micCtx.resume();
 
-                // 割り込み機能
-                if (isPlaying && audioSources.length > 0) {
-                    audioSources.forEach(s => { try { s.stop(); } catch (e) { } });
-                    audioSources = [];
-                    isPlaying = false;
-                    nextStartTime = playCtx ? playCtx.currentTime : 0;
-                }
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+                });
 
-                // WebSocket接続チェック
-                if (!ws || ws.readyState !== 1) {
-                    trace("🔄 WebSocket接続中...", 'sys');
-                    await connectGemini();
-                    let attempts = 0;
-                    while ((!ws || ws.readyState !== 1) && attempts < 6) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        attempts++;
-                    }
-                    if (!ws || ws.readyState !== 1) {
-                        trace("❌ WebSocket接続失敗", 'err');
-                        txt.innerText = 'READY';
-                        return;
-                    }
-                }
+                const actualRate = micCtx.sampleRate;
+                trace(`🎤 マイクOK (${actualRate}Hz -> 16000Hz)`);
 
-                // マイク初期化
-                if (!processor) {
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
-                    });
+                // レート通知はしない（サーバーをシンプルにしたため）
 
-                    const actualRate = micCtx.sampleRate;
-                    trace(`🎤 マイク取得OK (${actualRate}Hz)`, 'sys');
+                const source = micCtx.createMediaStreamSource(stream);
+                processor = micCtx.createScriptProcessor(4096, 1, 1);
 
-                    // サーバーにサンプルレートを通知（重要：ドキュメント通り任意のレートを送るため）
-                    if (ws && ws.readyState === 1) {
-                        ws.send(JSON.stringify({ sample_rate: actualRate }));
+                processor.onaudioprocess = (e) => {
+                    if (!isRecording) return;
+                    const inputData = e.inputBuffer.getChannelData(0);
+
+                    // レベル表示
+                    let p = 0;
+                    for (let i = 0; i < inputData.length; i++) { if (Math.abs(inputData[i]) > p) p = Math.abs(inputData[i]); }
+                    micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
+
+                    // ダウンサンプリング (16kHz化)
+                    const downsampled = downsampleBuffer(inputData, actualRate, 16000);
+
+                    // PCM16変換して送信
+                    const pcm16 = new Int16Array(downsampled.length);
+                    for (let i = 0; i < downsampled.length; i++) {
+                        pcm16[i] = Math.max(-32768, Math.min(32767, downsampled[i] * 32767));
                     }
 
-                    const source = micCtx.createMediaStreamSource(stream);
-                    processor = micCtx.createScriptProcessor(4096, 1, 1);
+                    if (ws && ws.readyState === 1) ws.send(pcm16.buffer);
+                };
 
-                    processor.onaudioprocess = (e) => {
-                        if (!isRecording) return;
-                        const inputData = e.inputBuffer.getChannelData(0);
+                source.connect(processor);
+                processor.connect(micCtx.destination); // これで音が鳴るのを防ぐために volume0 の gainNode に繋ぐ手もあるが...
+                // Chromeではoutputに繋がないとprocessが止まることがあるが、
+                // iOS Safariでは逆につなぐとハウリングする可能性がある。
+                // ここでは processor.connect(micCtx.destination) は一旦外す（必要ならGainNode(0)に繋ぐ）
+                // ただし古いコードでは繋いでいた可能性が高い。
+                // 安全策として、GainNode(0)経由で繋ぐ。
+                const mute = micCtx.createGain();
+                mute.gain.value = 0;
+                processor.connect(mute);
+                mute.connect(micCtx.destination);
 
-                        // マイクレベル表示
-                        let p = 0;
-                        for (let i = 0; i < inputData.length; i++) {
-                            const v = Math.abs(inputData[i]);
-                            if (v > p) p = v;
-                        }
-                        micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
-
-                        // 生PCM16変換（ダウンサンプリングなし）
-                        const pcm16 = new Int16Array(inputData.length);
-                        for (let i = 0; i < inputData.length; i++) {
-                            pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
-                        }
-
-                        if (ws && ws.readyState === 1) {
-                            ws.send(pcm16.buffer);
-                            pcmSentCount++;
-                        }
-                    };
-
-                    source.connect(processor);
-                    processor.connect(micCtx.destination);
-                }
-
-                pcmSentCount = 0;
-                playbackCount = 0;
                 isRecording = true;
                 txt.innerText = 'ON';
-                trace("🎤 MIC ON", 'sys');
 
             } catch (err) {
-                trace(`🎤 エラー: ${err.message}`, 'err');
+                trace(`エラー: ${err.message}`);
                 txt.innerText = 'READY';
             }
         }
 
         function stop() {
-            if (!isRecording) return;
             isRecording = false;
             txt.innerText = 'READY';
-            trace(`🎤 MIC OFF (Sent ${pcmSentCount})`, 'sys');
+            trace("🎤 MIC OFF");
         }
 
-        // ================================================
-        // イベントリスナー
-        // ================================================
         if ('ontouchstart' in window) {
-            trace("📱 Mobile device", 'sys');
             btn.addEventListener('touchstart', (e) => { e.preventDefault(); start(); });
             btn.addEventListener('touchend', (e) => { e.preventDefault(); stop(); });
-            btn.addEventListener('touchcancel', (e) => { e.preventDefault(); stop(); });
         } else {
             btn.addEventListener('mousedown', start);
             btn.addEventListener('mouseup', stop);
-            btn.addEventListener('mouseleave', stop);
         }
 
-        logoutBtn.addEventListener('click', async () => {
-            try { await fetch('/auth/logout'); window.location.reload(); } catch (e) { }
-        });
-
-        // ================================================
-        // ページ読み込み
-        // ================================================
         window.addEventListener('load', async () => {
-            const isAuthenticated = await checkAuth();
-            if (isAuthenticated) {
-                trace(`${APP_VERSION} Loaded.`);
-                // 認証済みなら即WebSocket接続
-                connectGemini();
-                // Service Worker
-                if ('serviceWorker' in navigator) {
-                    try { await navigator.serviceWorker.register('/sw.js'); } catch (e) { }
-                }
-            }
+            connectGemini();
+            if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
         });
     </script>
 </body>
