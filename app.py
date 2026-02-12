@@ -626,7 +626,11 @@ async def websocket_endpoint(websocket: WebSocket):
     }
 
     try:
-        async with client.models.live.connect(model=model_id, config=config) as session:
+        # 公式ドキュメント準拠：client.aio.live.connect を使用
+        async with client.aio.live.connect(model=model_id, config=config) as session:
+            print("✅ Gemini Live セッション確立")
+            await websocket.send_text("DEBUG: Gemini Live セッション確立")
+
             async def send_to_gemini():
                 print("🎤 クライアントからの音声送信ループ開始")
                 try:
@@ -634,11 +638,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         # テキスト/バイナリ両方を受け入れる
                         msg = await websocket.receive()
                         if msg.get("bytes"):
-                            # バイナリPCMデータ → Geminiに転送
-                            # 公式ドキュメント準拠：rate=16000 を明示
-                            await session.send(input={"data": msg["bytes"], "mime_type": "audio/pcm;rate=16000"}, end_of_turn=True)
+                            # 公式ドキュメント準拠：send_realtime_input + types.Blob
+                            await session.send_realtime_input(
+                                audio=types.Blob(data=msg["bytes"], mime_type="audio/pcm;rate=16000")
+                            )
                         elif msg.get("text"):
-                            # フロントからのJSONテキスト（setup等）→ プロキシ方式では不要なので無視
+                            # フロントからのJSONテキスト → プロキシ方式では不要なので無視
                             print(f"📝 テキスト受信（無視）: {msg['text'][:100]}")
                 except Exception as e:
                     print(f"📡 クライアント送信停止: {e}")
@@ -646,18 +651,22 @@ async def websocket_endpoint(websocket: WebSocket):
             async def receive_from_gemini():
                 try:
                     async for message in session.receive():
-                        # 過去の成功コード通り：ログを最小化
-                        # 音声の返却
-                        if message.server_content and message.server_content.model_turn:
+                        # 公式ドキュメント準拠：response.data で音声受信
+                        if message.data is not None:
+                            await websocket.send_bytes(message.data)
+                        # フォールバック：server_content.model_turn.parts からも音声受信
+                        elif message.server_content and message.server_content.model_turn:
                             for part in message.server_content.model_turn.parts:
                                 if part.inline_data:
                                     await websocket.send_bytes(part.inline_data.data)
                         
                         # ツール実行要求の処理
                         if message.tool_call:
+                            print(f"🔧 ツール呼び出し検出")
+                            function_responses = []
                             for call in message.tool_call.function_calls:
+                                print(f"🔧 ツール実行: {call.name}")
                                 res = None
-                                # 過去の成功コード通り：session_id不要
                                 if call.name == "search_drive_files": res = await search_drive_files(call.args["query"])
                                 elif call.name == "send_gmail_message": res = await send_gmail_message(call.args["to"], call.args["subject"], call.args["body"])
                                 elif call.name == "list_recent_emails": res = await list_recent_emails(call.args.get("max_results", 5))
@@ -667,18 +676,23 @@ async def websocket_endpoint(websocket: WebSocket):
                                 elif call.name == "add_task": res = await add_task(call.args["title"])
                                 
                                 if res:
-                                    # print(f"🔧 ツール結果送信: {call.name}")
-                                    await session.send(input=types.LiveClientToolResponse(
-                                        function_responses=[types.LiveClientFunctionResponse(
-                                            name=call.name, id=call.id, response={"result": res}
-                                        )]
+                                    # 公式ドキュメント準拠：types.FunctionResponse を使用
+                                    function_responses.append(types.FunctionResponse(
+                                        id=call.id,
+                                        name=call.name,
+                                        response={"result": res}
                                     ))
+                            
+                            if function_responses:
+                                # 公式ドキュメント準拠：send_tool_response を使用
+                                await session.send_tool_response(function_responses=function_responses)
                         
                         if message.server_content and message.server_content.turn_complete:
                             pass # print("✅ Gemini のターンが完了しました")
                 except Exception as e:
                     print(f"❌ Gemini 通信エラー: {e}")
-                    print("💡 ヒント: APIキーの制限（ウェブサイト制限）が有効なままになっていませんか？ Pythonから使う場合は制限を外す必要があります。")
+                    import traceback
+                    traceback.print_exc()
                     report_api_error(api_key)
 
             await asyncio.gather(send_to_gemini(), receive_from_gemini())
@@ -686,6 +700,8 @@ async def websocket_endpoint(websocket: WebSocket):
         print("🔌 クライアントが切断しました")
     except Exception as e:
         print(f"❌ サーバーエラー: {e}")
+        import traceback
+        traceback.print_exc()
 
 # リクエストオブジェクトを渡すためのヘルパー
 def create_request_with_session(session_id: str):
