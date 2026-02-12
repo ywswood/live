@@ -597,6 +597,14 @@ async def websocket_endpoint(websocket: WebSocket):
     print(f"📡 使用モデル: {model_id}")
     await websocket.send_text(f"DEBUG: 使用モデル: {model_id}")
     
+    # SDKバージョン診断
+    try:
+        sdk_version = genai.__version__ if hasattr(genai, '__version__') else "不明"
+    except:
+        sdk_version = "取得失敗"
+    print(f"📦 google-genai SDK version: {sdk_version}")
+    await websocket.send_text(f"DEBUG: SDK version: {sdk_version}")
+
     try:
         client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
         print("✅ Gemini Client 初期化成功")
@@ -631,34 +639,85 @@ async def websocket_endpoint(websocket: WebSocket):
             print("✅ Gemini Live セッション確立")
             await websocket.send_text("DEBUG: Gemini Live セッション確立")
 
+            # テスト：テキストで挨拶を送信して応答を確認
+            try:
+                await session.send_client_content(
+                    turns={"role": "user", "parts": [{"text": "こんにちは。テスト中です。"}]},
+                    turn_complete=True
+                )
+                print("📤 テスト用テキスト送信完了")
+                await websocket.send_text("DEBUG: テスト用テキスト送信完了")
+            except Exception as e:
+                print(f"❌ テスト送信失敗: {e}")
+                await websocket.send_text(f"DEBUG: テスト送信失敗: {e}")
+
+            recv_count = [0]  # 受信カウンター（mutableに）
+            send_count = [0]  # 送信カウンター
+
             async def send_to_gemini():
                 print("🎤 クライアントからの音声送信ループ開始")
                 try:
                     while True:
-                        # テキスト/バイナリ両方を受け入れる
                         msg = await websocket.receive()
                         if msg.get("bytes"):
+                            data = msg["bytes"]
+                            send_count[0] += 1
+                            # 最初の数回だけ詳細ログ
+                            if send_count[0] <= 3:
+                                await websocket.send_text(f"DEBUG: サーバー受信 {len(data)}bytes (#{send_count[0]})")
                             # 公式ドキュメント準拠：send_realtime_input + types.Blob
                             await session.send_realtime_input(
-                                audio=types.Blob(data=msg["bytes"], mime_type="audio/pcm;rate=16000")
+                                audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000")
                             )
+                            if send_count[0] <= 3:
+                                await websocket.send_text(f"DEBUG: Gemini転送OK (#{send_count[0]})")
                         elif msg.get("text"):
-                            # フロントからのJSONテキスト → プロキシ方式では不要なので無視
-                            print(f"📝 テキスト受信（無視）: {msg['text'][:100]}")
+                            print(f"📝 テキスト受信: {msg['text'][:100]}")
                 except Exception as e:
                     print(f"📡 クライアント送信停止: {e}")
+                    try:
+                        await websocket.send_text(f"DEBUG: 送信側エラー: {e}")
+                    except:
+                        pass
 
             async def receive_from_gemini():
                 try:
                     async for message in session.receive():
+                        recv_count[0] += 1
+                        
+                        # 全メッセージの型を診断
+                        msg_type = type(message).__name__
+                        has_data = message.data is not None
+                        has_sc = message.server_content is not None
+                        has_tc = message.tool_call is not None
+                        
+                        # 最初の数回は詳細ログ
+                        if recv_count[0] <= 5:
+                            detail = f"type={msg_type} data={has_data} sc={has_sc} tc={has_tc}"
+                            print(f"📥 Gemini受信 #{recv_count[0]}: {detail}")
+                            try:
+                                await websocket.send_text(f"DEBUG: Gemini受信 #{recv_count[0]}: {detail}")
+                            except:
+                                pass
+                        
                         # 公式ドキュメント準拠：response.data で音声受信
                         if message.data is not None:
                             await websocket.send_bytes(message.data)
+                            if recv_count[0] <= 5:
+                                try:
+                                    await websocket.send_text(f"DEBUG: 音声送信 {len(message.data)}bytes")
+                                except:
+                                    pass
                         # フォールバック：server_content.model_turn.parts からも音声受信
                         elif message.server_content and message.server_content.model_turn:
                             for part in message.server_content.model_turn.parts:
                                 if part.inline_data:
                                     await websocket.send_bytes(part.inline_data.data)
+                                    if recv_count[0] <= 5:
+                                        try:
+                                            await websocket.send_text(f"DEBUG: 音声送信(FB) {len(part.inline_data.data)}bytes")
+                                        except:
+                                            pass
                         
                         # ツール実行要求の処理
                         if message.tool_call:
@@ -676,7 +735,6 @@ async def websocket_endpoint(websocket: WebSocket):
                                 elif call.name == "add_task": res = await add_task(call.args["title"])
                                 
                                 if res:
-                                    # 公式ドキュメント準拠：types.FunctionResponse を使用
                                     function_responses.append(types.FunctionResponse(
                                         id=call.id,
                                         name=call.name,
@@ -684,15 +742,22 @@ async def websocket_endpoint(websocket: WebSocket):
                                     ))
                             
                             if function_responses:
-                                # 公式ドキュメント準拠：send_tool_response を使用
                                 await session.send_tool_response(function_responses=function_responses)
                         
+                        # turn_complete
                         if message.server_content and message.server_content.turn_complete:
-                            pass # print("✅ Gemini のターンが完了しました")
+                            try:
+                                await websocket.send_text("DEBUG: ターン完了")
+                            except:
+                                pass
                 except Exception as e:
                     print(f"❌ Gemini 通信エラー: {e}")
                     import traceback
                     traceback.print_exc()
+                    try:
+                        await websocket.send_text(f"DEBUG: 受信側エラー: {e}")
+                    except:
+                        pass
                     report_api_error(api_key)
 
             await asyncio.gather(send_to_gemini(), receive_from_gemini())
@@ -702,6 +767,10 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"❌ サーバーエラー: {e}")
         import traceback
         traceback.print_exc()
+        try:
+            await websocket.send_text(f"DEBUG: サーバーエラー: {e}")
+        except:
+            pass
 
 # リクエストオブジェクトを渡すためのヘルパー
 def create_request_with_session(session_id: str):
