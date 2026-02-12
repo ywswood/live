@@ -630,9 +630,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 print("🎤 クライアントからの音声送信ループ開始")
                 try:
                     while True:
-                        data = await websocket.receive_bytes()
-                        # 過去の成功コード通り：ログを最小化
-                        await session.send(input={"data": data, "mime_type": "audio/pcm"}, end_of_turn=True)
+                        # テキスト/バイナリ両方を受け入れる
+                        msg = await websocket.receive()
+                        if msg.get("bytes"):
+                            # バイナリPCMデータ → Geminiに転送
+                            await session.send(input={"data": msg["bytes"], "mime_type": "audio/pcm"}, end_of_turn=True)
+                        elif msg.get("text"):
+                            # フロントからのJSONテキスト（setup等）→ プロキシ方式では不要なので無視
+                            print(f"📝 テキスト受信（無視）: {msg['text'][:100]}")
                 except Exception as e:
                     print(f"📡 クライアント送信停止: {e}")
 

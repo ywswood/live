@@ -246,15 +246,8 @@
                 ws.binaryType = 'arraybuffer';
 
                 ws.onopen = () => {
+                    // プロキシ方式：サーバー側でGemini接続済みなのでsetup送信不要
                     trace("🔥 NETWORK_LINK: OK (Binary Mode)", 'sys');
-                    const setup = {
-                        setup: {
-                            model: MODEL_NAME,
-                            generation_config: { response_modalities: ["AUDIO"] }
-                        }
-                    };
-                    ws.send(JSON.stringify(setup));
-                    trace("SENT: JSON Setup package", 'send');
                 };
 
                 ws.onclose = (ev) => {
@@ -302,120 +295,9 @@
                     }
                 };
 
-                // スマホ対応：マイク設定を最適化
-                const constraints = {
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false,
-                        sampleRate: 16000,
-                        channelCount: 1
-                    }
-                };
-                
-                // iOS対応：getUserMediaの前にAudioContextを再開
-                if (audioCtx.state === 'suspended') {
-                    await audioCtx.resume();
-                }
-                
-                // スマホ対応：マイクアクセスのタイムアウト設定
-                const stream = await Promise.race([
-                    navigator.mediaDevices.getUserMedia(constraints),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('MIC_TIMEOUT')), 10000))
-                ]);
-                
-                trace("🎤 MIC ACCESS OK", 'sys');
-                const source = audioCtx.createMediaStreamSource(stream);
-                
-                // iOS/Safari対応：AudioWorkNodeが使えない場合のフォールバック
-                if (audioCtx.createScriptProcessor) {
-                    processor = audioCtx.createScriptProcessor(2048, 1, 1);
-                    source.connect(processor); 
-                    processor.connect(audioCtx.destination);
-                } else if (audioCtx.createAudioWorkletNode) {
-                    // AudioWorkNode対応（モダンブラウザ）
-                    try {
-                        await audioCtx.audioWorklet.addModule('data:application/javascript,' + encodeURIComponent(`
-                            class MicProcessor extends AudioWorkletProcessor {
-                                process(inputs, outputs) {
-                                    const input = inputs[0];
-                                    if (input && input.length > 0) {
-                                        const inputData = input[0];
-                                        // データを処理してグローバル変数に保存
-                                        if (typeof self.postMessage === 'function') {
-                                            self.postMessage({ audioData: Array.from(inputData[0]) });
-                                        }
-                                    }
-                                    return true;
-                                }
-                            }
-                            registerProcessor('mic-processor', MicProcessor);
-                        `));
-                        
-                        processor = audioCtx.createAudioWorkletNode('mic-processor');
-                        processor.port.onmessage = (e) => {
-                            if (e.data.audioData) {
-                                this.handleAudioData(new Float32Array(e.data.audioData));
-                            }
-                        };
-                        source.connect(processor);
-                        processor.connect(audioCtx.destination);
-                    } catch (e) {
-                        trace("⚠️ AudioWorkNode failed", 'err');
-                        // ScriptProcessorにフォールバック
-                        processor = audioCtx.createScriptProcessor(2048, 1, 1);
-                        source.connect(processor); 
-                        processor.connect(audioCtx.destination);
-                    }
-                } else {
-                    trace("⚠️ No audio processing available", 'err');
-                    return;
-                }
-
-                // AudioWorkNode用のハンドラ関数
-                window.handleAudioData = function(input) {
-                    let p = 0; for (let v of input) if (Math.abs(v) > p) p = Math.abs(v);
-                    micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
-
-                    if (!isRecording || !ws || ws.readyState !== 1) return;
-                    
-                    // 音声データの検証（スマホ対応）
-                    let hasSound = false;
-                    for (let i = 0; i < input.length; i++) {
-                        if (Math.abs(input[i]) > 0.001) {
-                            hasSound = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!hasSound) {
-                        trace("🔇 No audio detected", 'sys');
-                        return;
-                    }
-                    
-                    const pcm16 = new Int16Array(input.length);
-                    for (let i = 0; i < input.length; i++) pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
-
-                    const packet = {
-                        realtime_input: {
-                            media_chunks: [{
-                                data: btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer))),
-                                mime_type: "audio/pcm;rate=16000"
-                            }]
-                        }
-                    };
-                    ws.send(JSON.stringify(packet));
-                    pcmSentCount++;
-                    trace(`📤 Sent audio chunk: ${pcmSentCount}`, 'send');
-                };
-
-                processor.onaudioprocess = (e) => {
-                    window.handleAudioData(e.inputBuffer.getChannelData(0));
-                };
-
+                // マイク初期化はstart()で行う（connectGeminiではWS接続のみ確立）
             } catch (err) { 
                 trace(`BOOT_ERR: ${err.message}`, 'err');
-                console.error('Microphone error:', err);
             }
         }
 
@@ -479,6 +361,7 @@
         }
 
         async function start() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
             if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
             
             // 割り込み機能：AIが喋っている場合は停止
@@ -512,7 +395,7 @@
                 }
             }
             
-            // マイクの初期化
+            // マイクの初期化（バイナリPCMをサーバーに送信）
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
@@ -530,11 +413,17 @@
                     processor.onaudioprocess = (e) => {
                         if (!isRecording) return;
                         const inputData = e.inputBuffer.getChannelData(0);
+                        
+                        // マイクレベル表示
+                        let p = 0; for (let v of inputData) if (Math.abs(v) > p) p = Math.abs(v);
+                        micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
+                        
                         const pcm16 = new Int16Array(inputData.length);
                         for (let i = 0; i < inputData.length; i++) {
                             pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
                         }
                         
+                        // バイナリPCMデータをサーバーに送信（JSON不要）
                         if (ws && ws.readyState === 1) {
                             ws.send(pcm16.buffer);
                             pcmSentCount++;
@@ -563,13 +452,8 @@
             btn.classList.remove('recording'); txt.innerText = 'READY';
             trace(`🎤 MIC OFF (Sent ${pcmSentCount})`, 'sys');
             
-            // WebSocketが接続されている場合のみ送信
-            if (ws && ws.readyState === 1) {
-                ws.send(JSON.stringify({ realtime_input: { audio_stream_end: true } }));
-                trace("SENT: audio_stream_end", 'send');
-            } else {
-                trace("⚠️ WebSocket未接続：audio_stream_end未送信", 'sys');
-            }
+            // プロキシ方式：audio_stream_endはサーバー側で管理
+            // end_of_turn=True を毎チャンク送信しているため不要
         }
 
         // 音声データ送信関数
