@@ -1,4 +1,4 @@
-const CACHE_NAME = 'voice-secretary-v1.2.8';
+const CACHE_NAME = 'voice-secretary-v1.5.1';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -24,27 +24,27 @@ self.addEventListener('fetch', event => {
         if (response) {
           return response;
         }
-        
+
         // APIリクエストはキャッシュしない
-        if (event.request.url.includes('/api/') || 
-            event.request.url.includes('/auth/') ||
-            event.request.url.includes('/ws')) {
+        if (event.request.url.includes('/api/') ||
+          event.request.url.includes('/auth/') ||
+          event.request.url.includes('/ws')) {
           return fetch(event.request);
         }
-        
+
         // その他のリクエストはネットワークから取得
         return fetch(event.request).then(response => {
           // レスポンスが正常な場合のみキャッシュ
           if (!response || response.status !== 200 || response.type !== 'basic') {
             return response;
           }
-          
+
           const responseToCache = response.clone();
           caches.open(CACHE_NAME)
             .then(cache => {
               cache.put(event.request, responseToCache);
             });
-          
+
           return response;
         });
       })

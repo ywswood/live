@@ -38,8 +38,8 @@ def get_gemini_config():
         print("❌ GEMINI_API_KEYが設定されていません")
         return None, None
     
-    # 過去の成功コード通り：gemini-2.0-flash-expを使用
-    return api_key, "gemini-2.0-flash-exp"
+    # 公式ドキュメント準拠：Live API 用ネイティブ音声モデル
+    return api_key, "gemini-2.5-flash-native-audio-preview-12-2025"
 
 def report_api_error(api_key):
     """API エラーを API Bank に報告する"""
@@ -607,8 +607,9 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close()
         return
     
-    # Geminiに教えるツール一覧
+    # Geminiに教えるツール一覧（公式ドキュメント準拠：response_modalities必須）
     config = {
+        "response_modalities": ["AUDIO"],
         "system_instruction": "あなたは日本語で話す秘書です。ユーザーがどんな言語で話しても、必ず日本語で応答してください。英語は絶対に使わないでください。ツールの結果もすべて日本語で説明してください。自然で丁寧な日本語でお願いします。",
         "tools": [
             {"google_search": {}},
@@ -634,7 +635,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         msg = await websocket.receive()
                         if msg.get("bytes"):
                             # バイナリPCMデータ → Geminiに転送
-                            await session.send(input={"data": msg["bytes"], "mime_type": "audio/pcm"}, end_of_turn=True)
+                            # 公式ドキュメント準拠：rate=16000 を明示
+                            await session.send(input={"data": msg["bytes"], "mime_type": "audio/pcm;rate=16000"}, end_of_turn=True)
                         elif msg.get("text"):
                             # フロントからのJSONテキスト（setup等）→ プロキシ方式では不要なので無視
                             print(f"📝 テキスト受信（無視）: {msg['text'][:100]}")
