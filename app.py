@@ -642,7 +642,8 @@ async def websocket_endpoint(websocket: WebSocket):
             # テスト：テキストで挨拶を送信して応答を確認
             recv_count = [0]  # 受信カウンター
             send_count = [0]  # 送信カウンター
-            # クライアントで16000Hzにダウンサンプリングして来るので、サーバーは固定でOK
+            # クライアントからのサンプルレート通知を待つ
+            client_sample_rate = [16000] # デフォルト
 
             async def send_to_gemini():
                 print("🎤 クライアントからの音声送信ループ開始")
@@ -652,18 +653,27 @@ async def websocket_endpoint(websocket: WebSocket):
                         if msg.get("bytes"):
                             data = msg["bytes"]
                             send_count[0] += 1
+                            rate = client_sample_rate[0]
                             # 最初の数回だけ詳細ログ
                             if send_count[0] <= 3:
-                                await websocket.send_text(f"DEBUG: サーバー受信 {len(data)}bytes rate=16000 (#{send_count[0]})")
+                                await websocket.send_text(f"DEBUG: サーバー受信 {len(data)}bytes rate={rate} (#{send_count[0]})")
                             
-                            # クライアント側で16000Hzに変換済みなので、mime_typeも固定
                             await session.send_realtime_input(
-                                audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000")
+                                audio=types.Blob(data=data, mime_type=f"audio/pcm;rate={rate}")
                             )
                             if send_count[0] <= 3:
                                 await websocket.send_text(f"DEBUG: Gemini転送OK (#{send_count[0]})")
                         elif msg.get("text"):
-                            print(f"📝 テキスト受信: {msg['text'][:100]}")
+                            # クライアントからのサンプルレート通知
+                            import json as json_mod
+                            try:
+                                parsed = json_mod.loads(msg["text"])
+                                if "sample_rate" in parsed:
+                                    client_sample_rate[0] = int(parsed["sample_rate"])
+                                    print(f"🎤 クライアントサンプルレート: {client_sample_rate[0]}Hz")
+                                    await websocket.send_text(f"DEBUG: サーバー側レート設定: {client_sample_rate[0]}Hz")
+                            except:
+                                print(f"📝 テキスト受信: {msg['text'][:100]}")
                 except Exception as e:
                     print(f"📡 クライアント送信停止: {e}")
                     try:
