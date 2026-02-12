@@ -631,18 +631,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 try:
                     while True:
                         data = await websocket.receive_bytes()
-                        print(f"📤 音声データ受信: {len(data)} bytes")
-                        # 過去の成功コード通り：end_of_turn=Trueで毎回送信
+                        # 過去の成功コード通り：ログを最小化
                         await session.send(input={"data": data, "mime_type": "audio/pcm"}, end_of_turn=True)
-                        print(f"✅ Geminiに音声送信成功: {len(data)} bytes")
                 except Exception as e:
                     print(f"📡 クライアント送信停止: {e}")
 
             async def receive_from_gemini():
-                print("🔍 Gemini応答待機開始")
                 try:
                     async for message in session.receive():
-                        print(f"📨 Geminiメッセージ受信: {type(message)}")
+                        # 過去の成功コード通り：ログを最小化
                         # 音声の返却
                         if message.server_content and message.server_content.model_turn:
                             for part in message.server_content.model_turn.parts:
@@ -651,7 +648,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         
                         # ツール実行要求の処理
                         if message.tool_call:
-                            print(f"🔧 ツール実行要求受信")
                             for call in message.tool_call.function_calls:
                                 res = None
                                 # 過去の成功コード通り：session_id不要
@@ -664,7 +660,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 elif call.name == "add_task": res = await add_task(call.args["title"])
                                 
                                 if res:
-                                    print(f"🔧 ツール結果送信: {call.name}")
+                                    # print(f"🔧 ツール結果送信: {call.name}")
                                     await session.send(input=types.LiveClientToolResponse(
                                         function_responses=[types.LiveClientFunctionResponse(
                                             name=call.name, id=call.id, response={"result": res}
@@ -672,7 +668,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     ))
                         
                         if message.server_content and message.server_content.turn_complete:
-                            print("✅ Gemini のターンが完了しました")
+                            pass # print("✅ Gemini のターンが完了しました")
                 except Exception as e:
                     print(f"❌ Gemini 通信エラー: {e}")
                     print("💡 ヒント: APIキーの制限（ウェブサイト制限）が有効なままになっていませんか？ Pythonから使う場合は制限を外す必要があります。")
