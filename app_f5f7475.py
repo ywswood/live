@@ -33,13 +33,28 @@ TOKEN_JSON_CONTENT = os.getenv("GOOGLE_TOKEN_JSON")
 
 def get_gemini_config():
     """APIキーとモデル名を確定する"""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("❌ GEMINI_API_KEYが設定されていません")
-        return None, None
+    print(f"🔍 config取得試行: FIXED_API_KEY={'あり' if FIXED_API_KEY else 'なし'}, BANK_URL={'あり' if BANK_URL else 'なし'}")
+    if FIXED_API_KEY:
+        print("✅ 固定APIキーを使用します")
+        return FIXED_API_KEY, "gemini-2.0-flash-exp"
     
-    # 公式ドキュメント通りの正しいモデル名を使用
-    return api_key, "gemini-2.5-flash-native-audio-preview-12-2025"
+    if not BANK_URL:
+        print("❌ BANK_URL が設定されていません")
+        return None, None
+
+    params = {'pass': BANK_PASS, 'project': BANK_PROJECT}
+    try:
+        print(f"📡 API Bank にリクエスト中... URL: {BANK_URL}")
+        response = requests.get(BANK_URL, params=params, timeout=10)
+        data = response.json()
+        if data.get('status') == 'success':
+            print(f"✅ API Bank 取得成功: {data['model_name']}")
+            return data['api_key'], data['model_name']
+        else:
+            print(f"❌ API Bank 取得失敗: {data.get('message', 'Unknown error')}")
+    except Exception as e:
+        print(f"❌ API Bank 取得エラー: {e}")
+    return None, None
 
 def report_api_error(api_key):
     """API エラーを API Bank に報告する"""
@@ -114,19 +129,11 @@ async def send_gmail_message(to: str, subject: str, body: str):
         return f"{to} 宛にメールを送信しました。"
     except Exception as e: return f"Gmail送信失敗: {str(e)}"
 
-async def list_recent_emails(max_results: int = 5, request: Request = None):
+async def list_recent_emails(max_results: int = 5):
     """最近のメール件名を取得します。"""
     print(f"📩 メールリスト取得中 (最大{max_results}件)")
     try:
-        # 現在のユーザー認証情報を取得
-        if request:
-            creds = get_user_credentials(request)
-            if not creds:
-                return "認証情報が見つかりません。Google認証が必要です。"
-        else:
-            creds = get_google_creds()
-        
-        service = build('gmail', 'v1', credentials=creds)
+        service = build('gmail', 'v1', credentials=get_google_creds())
         results = service.users().messages().list(userId='me', maxResults=max_results).execute()
         messages = results.get('messages', [])
         if not messages: return "新着メールはありません。"
@@ -257,182 +264,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/simple-auth")
-async def simple_auth(request: Request):
-    """社内ツール用簡易ログイン"""
-    try:
-        data = await request.json()
-        email = data.get("email", "")
-        password = data.get("password", "")
-        
-        if not email or not password:
-            raise HTTPException(status_code=400, detail="メールアドレスとパスワードが必要です")
-        
-        if not is_woodstock_domain(email):
-            raise HTTPException(status_code=403, detail="woodstock.co.jpドメインのメールアドレスが必要です")
-        
-        # 簡易認証（デモ用：パスワードチェックは省略）
-        session_id = secrets.token_urlsafe(32)
-        
-        # Gmail機能のためにダミー認証情報を設定
-        dummy_credentials = {
-            "token": "dummy_token",
-            "refresh_token": None,
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "client_id": "dummy_client_id",
-            "client_secret": "dummy_client_secret",
-            "scopes": [
-                "https://www.googleapis.com/auth/userinfo.email",
-                "https://www.googleapis.com/auth/userinfo.profile",
-                "https://www.googleapis.com/auth/drive",
-                "https://www.googleapis.com/auth/gmail.send",
-                "https://www.googleapis.com/auth/gmail.readonly",
-                "https://www.googleapis.com/auth/calendar",
-                "https://www.googleapis.com/auth/tasks"
-            ]
-        }
-        
-        sessions[session_id] = {
-            "authenticated": True,
-            "email": email,
-            "name": email.split("@")[0],  # メールアドレスの前半分を名前として使用
-            "credentials": dummy_credentials,
-            "simple_auth": True  # 簡易認証フラグ
-        }
-        
-        response = JSONResponse({"success": True})
-        response.set_cookie("session_id", session_id, httponly=False, samesite='lax')
-        return response
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ログインエラー: {str(e)}")
-
-@app.get("/gmail/unread")
-async def get_unread_emails(request: Request):
-    """未読の重要メールを取得"""
-    session_id = request.cookies.get("session_id")
-    if not session_id or session_id not in sessions:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    session = sessions[session_id]
-    if not session.get("authenticated"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    # 簡易認証の場合はダミーデータを返す
-    if session.get("simple_auth"):
-        # デモ用のダミーメールデータ
-        dummy_emails = [
-            {
-                'id': 'dummy1',
-                'from': 'boss@woodstock.co.jp',
-                'subject': '明日の会議について',
-                'date': '2025-02-11',
-                'snippet': '明日の午前10時から重要な会議があります...'
-            },
-            {
-                'id': 'dummy2', 
-                'from': 'client@external.com',
-                'subject': 'プロジェクト進捗報告',
-                'date': '2025-02-11',
-                'snippet': '今週のプロジェクト進捗についてご報告します...'
-            }
-        ]
-        return {"emails": dummy_emails}
-    
-    try:
-        # ユーザーの認証情報を復元
-        credentials = build_credentials(session.get("credentials", {}))
-        
-        # Gmail APIサービスを構築
-        gmail_service = build('gmail', 'v1', credentials=credentials)
-        
-        # 未読の重要メールを取得
-        results = gmail_service.users().messages().list(
-            userId='me',
-            q='is:unread important',
-            maxResults=10
-        ).execute()
-        
-        messages = results.get('messages', [])
-        emails = []
-        
-        for message in messages:
-            msg = gmail_service.users().messages().get(
-                userId='me',
-                id=message['id'],
-                format='metadata',
-                metadataHeaders=['From', 'Subject', 'Date']
-            ).execute()
-            
-            # メール情報を抽出
-            headers = {h['name']: h['value'] for h in msg['payload'].get('headers', [])}
-            
-            emails.append({
-                'id': message['id'],
-                'from': headers.get('From', ''),
-                'subject': headers.get('Subject', ''),
-                'date': headers.get('Date', ''),
-                'snippet': msg.get('snippet', '')
-            })
-        
-        return {"emails": emails}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gmail API error: {str(e)}")
-
-@app.post("/gmail/send")
-async def send_email(request: Request):
-    """メールを送信"""
-    session_id = request.cookies.get("session_id")
-    if not session_id or session_id not in sessions:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    session = sessions[session_id]
-    if not session.get("authenticated"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    try:
-        data = await request.json()
-        to = data.get("to")
-        subject = data.get("subject")
-        body = data.get("body")
-        
-        if not to or not subject or not body:
-            raise HTTPException(status_code=400, detail="Missing required fields")
-        
-        # ユーザーの認証情報を復元
-        credentials = build_credentials(session.get("credentials", {}))
-        
-        # Gmail APIサービスを構築
-        gmail_service = build('gmail', 'v1', credentials=credentials)
-        
-        # メールメッセージを作成
-        message = f"From: me\r\nTo: {to}\r\nSubject: {subject}\r\n\r\n{body}"
-        raw_message = base64.urlsafe_b64encode(message.encode()).decode()
-        
-        # メールを送信
-        result = gmail_service.users().messages().send(
-            userId='me',
-            body={'raw': raw_message}
-        ).execute()
-        
-        return {"success": True, "message_id": result['id']}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gmail API error: {str(e)}")
-
-def build_credentials(creds_dict):
-    """認証情報を復元"""
-    from google.oauth2.credentials import Credentials
-    return Credentials(
-        token=creds_dict.get('token'),
-        refresh_token=creds_dict.get('refresh_token'),
-        token_uri=creds_dict.get('token_uri'),
-        client_id=creds_dict.get('client_id'),
-        client_secret=creds_dict.get('client_secret'),
-        scopes=creds_dict.get('scopes')
-    )
-
 @app.get("/auth/login")
 async def auth_login():
     """Google認証開始"""
@@ -446,7 +277,7 @@ async def auth_login():
     sessions[session_id] = {"state": state}
     
     response = RedirectResponse(authorization_url)
-    response.set_cookie("session_id", session_id, httponly=False, samesite='lax')
+    response.set_cookie("session_id", session_id, httponly=True)
     return response
 
 @app.get("/oauth2callback")
@@ -568,42 +399,18 @@ async def get():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("🚀 WebSocket 接続開始（クライアントが接続を試みています）")
-    
-    # セッション認証
-    session_id = websocket.query_params.get("session_id")
-    if not session_id or session_id not in sessions:
-        print("❌ セッションIDが無効です")
-        await websocket.close(code=1008, reason="Unauthorized")
-        return
-    
-    session = sessions[session_id]
-    if not session.get("authenticated"):
-        print("❌ ユーザーが認証されていません")
-        await websocket.close(code=1008, reason="Unauthorized")
-        return
-    
-    print(f"✅ ユーザー認証済み: {session.get('email')}")
-    
-    # クライアントにデバッグ情報を送信
-    await websocket.send_text(f"DEBUG: ユーザー認証済み: {session.get('email')}")
-    
     api_key, model_id = get_gemini_config()
     if not api_key:
         print("❌ APIキーが取得できないため、接続を拒否します")
-        await websocket.send_text("DEBUG: APIキーが取得できません")
         await websocket.close()
         return
 
     print(f"📡 使用モデル: {model_id}")
-    await websocket.send_text(f"DEBUG: 使用モデル: {model_id}")
-    
     try:
         client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
         print("✅ Gemini Client 初期化成功")
-        await websocket.send_text("DEBUG: Gemini Client 初期化成功")
     except Exception as e:
         print(f"❌ Gemini Client 初期化失敗: {e}")
-        await websocket.send_text(f"DEBUG: Gemini Client 初期化失敗: {e}")
         await websocket.close()
         return
     
@@ -631,18 +438,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 try:
                     while True:
                         data = await websocket.receive_bytes()
-                        print(f"📤 音声データ受信: {len(data)} bytes")
-                        # 過去の成功コード通り：end_of_turn=Trueで毎回送信
+                        # print(f"📤 データ受信: {len(data)} bytes") # ログが多すぎるのでコメントアウト
                         await session.send(input={"data": data, "mime_type": "audio/pcm"}, end_of_turn=True)
-                        print(f"✅ Geminiに音声送信成功: {len(data)} bytes")
                 except Exception as e:
                     print(f"📡 クライアント送信停止: {e}")
 
             async def receive_from_gemini():
-                print("🔍 Gemini応答待機開始")
                 try:
                     async for message in session.receive():
-                        print(f"📨 Geminiメッセージ受信: {type(message)}")
                         # 音声の返却
                         if message.server_content and message.server_content.model_turn:
                             for part in message.server_content.model_turn.parts:
@@ -651,10 +454,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         
                         # ツール実行要求の処理
                         if message.tool_call:
-                            print(f"🔧 ツール実行要求受信")
                             for call in message.tool_call.function_calls:
                                 res = None
-                                # 過去の成功コード通り：session_id不要
                                 if call.name == "search_drive_files": res = await search_drive_files(call.args["query"])
                                 elif call.name == "send_gmail_message": res = await send_gmail_message(call.args["to"], call.args["subject"], call.args["body"])
                                 elif call.name == "list_recent_emails": res = await list_recent_emails(call.args.get("max_results", 5))
@@ -664,7 +465,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 elif call.name == "add_task": res = await add_task(call.args["title"])
                                 
                                 if res:
-                                    print(f"🔧 ツール結果送信: {call.name}")
+                                    # print(f"🔧 ツール結果送信: {call.name}")
                                     await session.send(input=types.LiveClientToolResponse(
                                         function_responses=[types.LiveClientFunctionResponse(
                                             name=call.name, id=call.id, response={"result": res}
@@ -672,7 +473,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     ))
                         
                         if message.server_content and message.server_content.turn_complete:
-                            print("✅ Gemini のターンが完了しました")
+                            pass # print("✅ Gemini のターンが完了しました")
                 except Exception as e:
                     print(f"❌ Gemini 通信エラー: {e}")
                     print("💡 ヒント: APIキーの制限（ウェブサイト制限）が有効なままになっていませんか？ Pythonから使う場合は制限を外す必要があります。")
@@ -683,18 +484,6 @@ async def websocket_endpoint(websocket: WebSocket):
         print("🔌 クライアントが切断しました")
     except Exception as e:
         print(f"❌ サーバーエラー: {e}")
-
-# リクエストオブジェクトを渡すためのヘルパー
-def create_request_with_session(session_id: str):
-    """セッションIDからリクエストオブジェクトを模擬"""
-    class MockRequest:
-        def __init__(self, session_id):
-            self.session_id = session_id
-        
-        def cookies(self):
-            return {"session_id": session_id}
-    
-    return MockRequest(session_id)
 
 if __name__ == "__main__":
     import uvicorn
