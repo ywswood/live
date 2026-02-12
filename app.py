@@ -673,12 +673,12 @@ async def websocket_endpoint(websocket: WebSocket):
                                     await websocket.send_text(f"DEBUG: サーバー側レート設定: {client_sample_rate[0]}Hz")
                             except:
                                 print(f"📝 テキスト受信: {msg['text'][:100]}")
-                    except Exception as e:
-                        print(f"📡 クライアント送信停止: {e}")
-                        try:
-                            await websocket.send_text(f"DEBUG: 送信側エラー: {e}")
-                        except:
-                            pass
+                except Exception as e:
+                    print(f"📡 クライアント送信停止: {e}")
+                    try:
+                        await websocket.send_text(f"DEBUG: 送信側エラー: {e}")
+                    except:
+                        pass
 
             async def receive_from_gemini():
                 try:
