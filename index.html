@@ -14,7 +14,7 @@
     <header class="bg-black border-b border-red-600">
         <div class="container mx-auto px-4 py-3">
             <h1 class="text-lg font-bold text-white">woodstock</h1>
-            <div class="text-xs text-gray-300">v1.5.3-diag</div>
+            <div class="text-xs text-gray-300">v1.5.4</div>
         </div>
     </header>
 
@@ -52,48 +52,12 @@
     </main>
 
     <script>
-        const APP_VERSION = 'v1.5.3-diag';
+        const APP_VERSION = 'v1.5.4';
         const btn = document.getElementById('mic-btn');
         const txt = document.getElementById('mic-status');
         const micEl = document.getElementById('mic-level');
         const traceEl = document.getElementById('trace-log');
         const logoutBtn = document.getElementById('logout-btn');
-
-        // Gmail機能（音声のみで操作）
-        async function checkImportantEmails() {
-            try {
-                trace("📧 重要な未読メールを確認中...", 'sys');
-                const response = await fetch('/gmail/unread');
-                const data = await response.json();
-
-                if (data.emails && data.emails.length > 0) {
-                    const emailCount = data.emails.length;
-                    const subjects = data.emails.slice(0, 3).map(e => e.subject).join(', ');
-                    trace(`📧 ${emailCount}件の重要な未読メールがあります`, 'sys');
-                    trace(`📧 主な件名: ${subjects}`, 'sys');
-
-                    // Geminiにメール内容を伝えて要約を依頼
-                    const emailSummary = `未読の重要メールが${emailCount}件あります。主な件名: ${subjects}`;
-                    trace(`📧 AI: ${emailSummary}`, 'sys');
-
-                } else {
-                    trace("📧 重要な未読メールはありません", 'sys');
-                }
-
-            } catch (error) {
-                trace(`📧 エラー: ${error.message}`, 'err');
-            }
-        }
-
-        // Geminiがメール確認要求を検知した場合の処理
-        function handleEmailRequest(userMessage) {
-            if (userMessage.includes('メール') &&
-                (userMessage.includes('未読') || userMessage.includes('大事') || userMessage.includes('確認'))) {
-                checkImportantEmails();
-                return true;
-            }
-            return false;
-        }
 
         // 認証チェック
         async function checkAuth() {
@@ -102,17 +66,13 @@
                 const response = await fetch('/auth/me');
                 const auth = await response.json();
 
-                trace(`🔍 認証状態: ${JSON.stringify(auth)}`, 'sys');
-
                 if (!auth.authenticated) {
-                    // 社内ツール用：簡易ログイン画面
                     trace("❌ 未認証：ログイン画面を表示", 'sys');
                     document.body.innerHTML = `
                         <div class="h-screen flex flex-col items-center justify-center bg-white text-black">
                             <div class="bg-white border border-red-600 rounded-lg p-8 max-w-md w-full mx-4">
                                 <h1 class="text-2xl font-bold text-black mb-6 text-center">woodstock</h1>
                                 <div class="text-sm text-gray-600 mb-6 text-center">${APP_VERSION}</div>
-                                
                                 <form id="login-form" class="space-y-4">
                                     <div>
                                         <input type="email" id="email" placeholder="メールアドレス" required
@@ -131,23 +91,18 @@
                             </div>
                         </div>
                     `;
-
-                    // ログインフォームの処理
                     document.getElementById('login-form').addEventListener('submit', async (e) => {
                         e.preventDefault();
                         const email = document.getElementById('email').value;
                         const password = document.getElementById('password').value;
                         const errorDiv = document.getElementById('login-error');
-
                         try {
                             const response = await fetch('/simple-auth', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ email, password })
                             });
-
                             if (response.ok) {
-                                trace("✅ ログイン成功：ページをリロード", 'sys');
                                 window.location.reload();
                             } else {
                                 const error = await response.json();
@@ -159,15 +114,14 @@
                             errorDiv.classList.remove('hidden');
                         }
                     });
-
                     return false;
                 }
 
-                trace("✅ 認証済み：アプリを初期化", 'sys');
+                trace("✅ 認証済み", 'sys');
                 return true;
 
             } catch (error) {
-                trace(`❌ 認証チェックエラー: ${error.message}`, 'err');
+                trace(`❌ 認証エラー: ${error.message}`, 'err');
                 return false;
             }
         }
@@ -176,15 +130,13 @@
             const cookies = document.cookie.split(';');
             for (let cookie of cookies) {
                 const [name, value] = cookie.trim().split('=');
-                if (name === 'session_id') {
-                    return decodeURIComponent(value);
-                }
+                if (name === 'session_id') return decodeURIComponent(value);
             }
             return null;
         }
 
         function trace(msg, type = '') {
-            if (type === 'audio' || type === 'recv' || type === 'send') return; // 高頻度ログをスキップ
+            if (type === 'audio' || type === 'send') return; // 高頻度ログをスキップ
             const time = new Date().toLocaleTimeString('ja-JP', { hour12: false });
             const div = document.createElement('div');
             div.className = type ? 'trace-' + type : '';
@@ -194,81 +146,71 @@
             traceEl.scrollTop = traceEl.scrollHeight;
         }
 
-        let ws, audioCtx, processor, micStream, isRecording = false, nextStartTime = 0, pcmSentCount = 0, isPlaying = false, audioSources = [];
+        // ================================================
+        // 音声コンテキスト（録音用・再生用を分離）
+        // ================================================
+        let ws, micCtx, playCtx, processor, isRecording = false;
+        let nextStartTime = 0, pcmSentCount = 0, isPlaying = false, audioSources = [];
+        let playbackCount = 0;
+
+        // 再生用AudioContext（24kHz出力用、デバイスデフォルトレート）
+        function ensurePlayContext() {
+            if (!playCtx) {
+                playCtx = new (window.AudioContext || window.webkitAudioContext)();
+                trace(`🔊 再生用AudioCtx: ${playCtx.sampleRate}Hz`, 'sys');
+            }
+            if (playCtx.state === 'suspended') {
+                playCtx.resume();
+            }
+            return playCtx;
+        }
 
         // ================================================
-        // WebSocket接続（ページロード時に確立）
+        // WebSocket接続
         // ================================================
         async function connectGemini() {
-            trace(`INIT: ${APP_VERSION} - WebSocket接続開始`, 'sys');
+            trace(`INIT: ${APP_VERSION}`, 'sys');
             try {
-                // セッションIDを取得（複数回試行）
-                let sessionId = null;
-                let attempts = 0;
-                while (!sessionId && attempts < 5) {
-                    sessionId = getSessionId();
-                    if (!sessionId) {
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                        attempts++;
-                    }
-                }
-
-                trace(`🔍 セッションID: ${sessionId ? '取得済み' : 'なし'}`, 'sys');
-
+                let sessionId = getSessionId();
                 if (!sessionId) {
-                    trace("❌ セッションIDが見つかりません。再ログインしてください。", 'err');
+                    trace("❌ セッションID不明", 'err');
                     return;
                 }
 
-                // WebSocket URLにセッションIDを追加
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsUrl = `${protocol}//${window.location.host}/ws?session_id=${sessionId}`;
                 trace(`🔗 WebSocket接続中...`, 'sys');
                 ws = new WebSocket(wsUrl);
-
-                // Binary-capable configuration
                 ws.binaryType = 'arraybuffer';
 
                 ws.onopen = () => {
-                    // プロキシ方式：サーバー側でGemini接続済みなのでsetup送信不要
                     trace("🔥 サーバー接続OK", 'sys');
                 };
 
                 ws.onclose = (ev) => {
                     trace(`🔌 切断 [${ev.code}]`, 'err');
                     ws = null;
-                    // 録音中に切断された場合は再接続
-                    if (isRecording) {
-                        trace("🔄 録音中に切断：再接続を試みます", 'sys');
-                        setTimeout(() => {
-                            if (isRecording) {
-                                connectGemini();
-                            }
-                        }, 1000);
-                    }
                 };
+
                 ws.onerror = (e) => {
                     trace("❌ 接続エラー", 'err');
                 };
 
-                ws.onmessage = async (e) => {
+                ws.onmessage = (e) => {
                     if (e.data instanceof ArrayBuffer) {
-                        // バイナリフレーム受信
-                        try {
-                            // JSONとしてパースを試みる
-                            const text = new TextDecoder().decode(e.data);
-                            const json = JSON.parse(text);
-                            handleJSON(json);
-                        } catch (err) {
-                            // 純粋なバイナリPCM音声（24kHz）
+                        // バイナリデータ = Geminiからの音声
+                        const bytes = new Uint8Array(e.data);
+                        if (bytes.length > 0) {
+                            playbackCount++;
+                            if (playbackCount <= 3) {
+                                trace(`🔊 音声受信: ${bytes.length}bytes (#${playbackCount})`, 'sys');
+                            }
                             playRawBinaryPCM(e.data);
                         }
                     } else {
-                        // テキストフレーム受信
+                        // テキストデータ = DEBUGメッセージ
                         if (e.data.startsWith('DEBUG:')) {
                             trace(`🔧 ${e.data}`, 'sys');
-                        } else {
-                            try { handleJSON(JSON.parse(e.data)); } catch (err) { /* JSONでなければ無視 */ }
                         }
                     }
                 };
@@ -278,37 +220,26 @@
             }
         }
 
-        function handleJSON(data) {
-            if (data.setupComplete || data.setup_complete) trace("⭐ setupComplete received!", 'important');
-            if (data.error) trace(`🚨 SERVER_ERROR: ${JSON.stringify(data.error)}`, 'err');
-
-            const sc = data.serverContent || data.server_content;
-            if (sc) {
-                const turn = sc.modelTurn || sc.model_turn;
-                if (turn?.parts?.[0]) {
-                    const part = turn.parts[0];
-                    if (part.inlineData || part.inline_data) {
-                        const audioB64 = (part.inlineData || part.inline_data).data;
-                        playRawPCM_Base64(audioB64);
-                    }
-                }
-            }
-        }
-
+        // ================================================
+        // 音声再生（Geminiからの24kHz PCM）
+        // ================================================
         function playRawBinaryPCM(buffer) {
             try {
-                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+                const ctx = ensurePlayContext();
                 const pcm16 = new Int16Array(buffer);
+                if (pcm16.length === 0) return;
+
                 const floats = new Float32Array(pcm16.length);
                 for (let i = 0; i < pcm16.length; i++) floats[i] = pcm16[i] / 32768.0;
 
-                const audioBuf = audioCtx.createBuffer(1, floats.length, 24000); // 24kHz stream
+                // 24kHzのバッファを作成 → AudioContextが自動リサンプリング
+                const audioBuf = ctx.createBuffer(1, floats.length, 24000);
                 audioBuf.getChannelData(0).set(floats);
-                const source = audioCtx.createBufferSource();
+                const source = ctx.createBufferSource();
                 source.buffer = audioBuf;
-                source.connect(audioCtx.destination);
+                source.connect(ctx.destination);
 
-                const now = audioCtx.currentTime;
+                const now = ctx.currentTime;
                 if (nextStartTime < now) nextStartTime = now;
                 source.start(nextStartTime);
 
@@ -317,59 +248,47 @@
                 isPlaying = true;
 
                 source.onended = () => {
-                    // 再生終了時に配列から削除
                     const index = audioSources.indexOf(source);
-                    if (index > -1) {
-                        audioSources.splice(index, 1);
-                    }
-                    if (audioSources.length === 0) {
-                        isPlaying = false;
-                    }
+                    if (index > -1) audioSources.splice(index, 1);
+                    if (audioSources.length === 0) isPlaying = false;
                 };
 
                 nextStartTime += audioBuf.duration;
-            } catch (e) { trace(`再生エラー: ${e.message}`, 'err'); }
-        }
-
-        function playRawPCM_Base64(base64) {
-            const binary = atob(base64), bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            playRawBinaryPCM(bytes.buffer);
+            } catch (e) {
+                trace(`再生エラー: ${e.message}`, 'err');
+            }
         }
 
         // ================================================
-        // マイク操作（ボタンタッチで即実行）
+        // マイク操作
         // ================================================
         async function start() {
-            // 即座にUI更新（ユーザーに反応を示す）
+            // 即座にUI更新
             txt.innerText = '接続中...';
-            btn.style.backgroundColor = '#991b1b';
 
             try {
-                // AudioContext作成（ユーザージェスチャー内で必須）
-                if (!audioCtx) {
-                    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                }
-                if (audioCtx.state === 'suspended') {
-                    await audioCtx.resume();
-                }
+                // ユーザージェスチャー内で再生用AudioContextを作成/resume（iOS必須）
+                ensurePlayContext();
 
-                // 割り込み機能：AIが喋っている場合は停止
+                // 録音用AudioContext（デバイスデフォルトレート使用）
+                if (!micCtx) {
+                    micCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    trace(`🎤 録音用AudioCtx: ${micCtx.sampleRate}Hz`, 'sys');
+                }
+                if (micCtx.state === 'suspended') await micCtx.resume();
+
+                // 割り込み機能
                 if (isPlaying && audioSources.length > 0) {
-                    trace("🔇 AI音声を停止", 'sys');
-                    audioSources.forEach(source => {
-                        try { source.stop(); } catch (e) { /* すでに停止 */ }
-                    });
+                    audioSources.forEach(s => { try { s.stop(); } catch (e) { } });
                     audioSources = [];
                     isPlaying = false;
-                    nextStartTime = audioCtx.currentTime;
+                    nextStartTime = playCtx ? playCtx.currentTime : 0;
                 }
 
-                // WebSocket接続をチェック・再接続
+                // WebSocket接続チェック
                 if (!ws || ws.readyState !== 1) {
                     trace("🔄 WebSocket接続中...", 'sys');
                     await connectGemini();
-                    // 接続待機（最大3秒）
                     let attempts = 0;
                     while ((!ws || ws.readyState !== 1) && attempts < 6) {
                         await new Promise(resolve => setTimeout(resolve, 500));
@@ -378,40 +297,49 @@
                     if (!ws || ws.readyState !== 1) {
                         trace("❌ WebSocket接続失敗", 'err');
                         txt.innerText = 'READY';
-                        btn.style.backgroundColor = '';
                         return;
                     }
                 }
 
-                // マイクの初期化（バイナリPCMをサーバーに送信）
+                // マイク初期化
                 if (!processor) {
                     const stream = await navigator.mediaDevices.getUserMedia({
                         audio: {
-                            echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: false,
-                            sampleRate: 16000
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
                         }
                     });
-                    micStream = stream;
 
-                    const source = audioCtx.createMediaStreamSource(stream);
-                    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+                    const actualRate = micCtx.sampleRate;
+                    trace(`🎤 マイク取得OK (${actualRate}Hz)`, 'sys');
+
+                    // サーバーにサンプルレートを通知
+                    if (ws && ws.readyState === 1) {
+                        ws.send(JSON.stringify({ sample_rate: actualRate }));
+                    }
+
+                    const source = micCtx.createMediaStreamSource(stream);
+                    processor = micCtx.createScriptProcessor(4096, 1, 1);
 
                     processor.onaudioprocess = (e) => {
                         if (!isRecording) return;
                         const inputData = e.inputBuffer.getChannelData(0);
 
                         // マイクレベル表示
-                        let p = 0; for (let v of inputData) if (Math.abs(v) > p) p = Math.abs(v);
+                        let p = 0;
+                        for (let i = 0; i < inputData.length; i++) {
+                            const v = Math.abs(inputData[i]);
+                            if (v > p) p = v;
+                        }
                         micEl.innerText = `MIC LVL: ${Math.round(p * 100)}%`;
 
+                        // PCM16に変換して送信
                         const pcm16 = new Int16Array(inputData.length);
                         for (let i = 0; i < inputData.length; i++) {
                             pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
                         }
 
-                        // バイナリPCMデータをサーバーに送信
                         if (ws && ws.readyState === 1) {
                             ws.send(pcm16.buffer);
                             pcmSentCount++;
@@ -419,88 +347,58 @@
                     };
 
                     source.connect(processor);
-                    processor.connect(audioCtx.destination);
-                    trace("🎤 マイク初期化完了", 'sys');
+                    processor.connect(micCtx.destination);
                 }
 
                 pcmSentCount = 0;
+                playbackCount = 0;
                 isRecording = true;
-                btn.classList.add('recording');
                 txt.innerText = 'ON';
-                btn.style.backgroundColor = '#991b1b';
                 trace("🎤 MIC ON", 'sys');
 
             } catch (err) {
                 trace(`🎤 エラー: ${err.message}`, 'err');
                 txt.innerText = 'READY';
-                btn.style.backgroundColor = '';
             }
         }
 
         function stop() {
-            if (!isRecording) return; // 重複実行を防ぐ
-
+            if (!isRecording) return;
             isRecording = false;
-            btn.classList.remove('recording');
             txt.innerText = 'READY';
-            btn.style.backgroundColor = '';
             trace(`🎤 MIC OFF (Sent ${pcmSentCount})`, 'sys');
         }
 
         // ================================================
-        // イベントリスナー設定
+        // イベントリスナー
         // ================================================
         if ('ontouchstart' in window) {
-            trace("📱 Mobile device detected", 'sys');
-            btn.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                start();
-            });
-
-            btn.addEventListener('touchend', (e) => {
-                e.preventDefault();
-                stop();
-            });
-
-            btn.addEventListener('touchcancel', (e) => {
-                e.preventDefault();
-                stop();
-            });
+            trace("📱 Mobile device", 'sys');
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); start(); });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); stop(); });
+            btn.addEventListener('touchcancel', (e) => { e.preventDefault(); stop(); });
         } else {
-            // PC用：マウスイベント
             btn.addEventListener('mousedown', start);
             btn.addEventListener('mouseup', stop);
             btn.addEventListener('mouseleave', stop);
         }
 
-        // ログアウト処理
         logoutBtn.addEventListener('click', async () => {
-            try {
-                await fetch('/auth/logout');
-                window.location.reload();
-            } catch (error) {
-                trace(`ログアウトエラー: ${error.message}`, 'err');
-            }
+            try { await fetch('/auth/logout'); window.location.reload(); } catch (e) { }
         });
 
         // ================================================
-        // ページ読み込み時
+        // ページ読み込み
         // ================================================
         window.addEventListener('load', async () => {
             const isAuthenticated = await checkAuth();
             if (isAuthenticated) {
                 trace(`${APP_VERSION} Loaded.`);
-
-                // 認証済みなら即座にWebSocket接続を確立
+                // 認証済みなら即WebSocket接続
                 connectGemini();
-
-                // Service Worker登録
+                // Service Worker
                 if ('serviceWorker' in navigator) {
-                    try {
-                        await navigator.serviceWorker.register('/sw.js');
-                    } catch (error) {
-                        // SW登録失敗は致命的ではない
-                    }
+                    try { await navigator.serviceWorker.register('/sw.js'); } catch (e) { }
                 }
             }
         });

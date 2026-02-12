@@ -640,19 +640,9 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_text("DEBUG: Gemini Live セッション確立")
 
             # テスト：テキストで挨拶を送信して応答を確認
-            try:
-                await session.send_client_content(
-                    turns={"role": "user", "parts": [{"text": "こんにちは。テスト中です。"}]},
-                    turn_complete=True
-                )
-                print("📤 テスト用テキスト送信完了")
-                await websocket.send_text("DEBUG: テスト用テキスト送信完了")
-            except Exception as e:
-                print(f"❌ テスト送信失敗: {e}")
-                await websocket.send_text(f"DEBUG: テスト送信失敗: {e}")
-
-            recv_count = [0]  # 受信カウンター（mutableに）
+            recv_count = [0]  # 受信カウンター
             send_count = [0]  # 送信カウンター
+            client_sample_rate = [16000]  # デフォルト、クライアントから通知で更新
 
             async def send_to_gemini():
                 print("🎤 クライアントからの音声送信ループ開始")
@@ -662,23 +652,33 @@ async def websocket_endpoint(websocket: WebSocket):
                         if msg.get("bytes"):
                             data = msg["bytes"]
                             send_count[0] += 1
+                            rate = client_sample_rate[0]
                             # 最初の数回だけ詳細ログ
                             if send_count[0] <= 3:
-                                await websocket.send_text(f"DEBUG: サーバー受信 {len(data)}bytes (#{send_count[0]})")
+                                await websocket.send_text(f"DEBUG: サーバー受信 {len(data)}bytes rate={rate} (#{send_count[0]})")
                             # 公式ドキュメント準拠：send_realtime_input + types.Blob
                             await session.send_realtime_input(
-                                audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000")
+                                audio=types.Blob(data=data, mime_type=f"audio/pcm;rate={rate}")
                             )
                             if send_count[0] <= 3:
                                 await websocket.send_text(f"DEBUG: Gemini転送OK (#{send_count[0]})")
                         elif msg.get("text"):
-                            print(f"📝 テキスト受信: {msg['text'][:100]}")
-                except Exception as e:
-                    print(f"📡 クライアント送信停止: {e}")
-                    try:
-                        await websocket.send_text(f"DEBUG: 送信側エラー: {e}")
-                    except:
-                        pass
+                            # クライアントからのサンプルレート通知
+                            import json as json_mod
+                            try:
+                                parsed = json_mod.loads(msg["text"])
+                                if "sample_rate" in parsed:
+                                    client_sample_rate[0] = int(parsed["sample_rate"])
+                                    print(f"🎤 クライアントサンプルレート: {client_sample_rate[0]}Hz")
+                                    await websocket.send_text(f"DEBUG: サーバー側レート設定: {client_sample_rate[0]}Hz")
+                            except:
+                                print(f"📝 テキスト受信: {msg['text'][:100]}")
+                    except Exception as e:
+                        print(f"📡 クライアント送信停止: {e}")
+                        try:
+                            await websocket.send_text(f"DEBUG: 送信側エラー: {e}")
+                        except:
+                            pass
 
             async def receive_from_gemini():
                 try:
